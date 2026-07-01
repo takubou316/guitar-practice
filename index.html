@@ -293,8 +293,13 @@ footer.controls-bar { height: var(--ftr); flex-shrink: 0; display: flex; align-i
 /* canvas = エリア全体 */
 .le-canvas { position: relative; background: var(--surface2); border: 2px solid var(--accent); border-radius: 10px; overflow: hidden; box-shadow: 0 0 0 4px rgba(212,129,58,0.15); }
 /* blocks */
-.le-block { position: absolute; border: 2px solid var(--accent); border-radius: 8px; background: rgba(212,129,58,0.13); display: flex; flex-direction: column; align-items: center; justify-content: center; cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; gap: 3px; min-width: 44px; min-height: 32px; box-sizing: border-box; }
-.le-block.dragging { cursor: grabbing; background: rgba(212,129,58,0.28); z-index: 10; box-shadow: 0 4px 16px rgba(0,0,0,0.4); }
+.le-block { position: absolute; border: 2px solid var(--accent); border-radius: 8px; background: rgba(212,129,58,0.13); display: flex; flex-direction: column; align-items: center; justify-content: center; cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; gap: 3px; min-width: 44px; min-height: 32px; box-sizing: border-box; transition: box-shadow 0.1s; }
+.le-block.dragging { cursor: grabbing; background: rgba(212,129,58,0.28); box-shadow: 0 6px 20px rgba(0,0,0,0.5); }
+/* 層バッジ */
+.le-zbadge { position: absolute; top: 4px; left: 4px; width: 18px; height: 18px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 900; pointer-events: none; transition: background 0.2s, color 0.2s; }
+.le-zbadge.z-front  { background: var(--accent); color: #fff; }
+.le-zbadge.z-mid    { background: var(--surface); color: var(--text2); border: 1px solid var(--border); }
+.le-zbadge.z-back   { background: var(--surface); color: var(--text3); border: 1px solid var(--border); opacity: 0.7; }
 .le-block-icon { font-size: 18px; pointer-events: none; line-height: 1; }
 .le-block-label { font-size: 10px; font-weight: 700; color: var(--accent); pointer-events: none; text-align: center; line-height: 1.2; padding: 0 4px; }
 .le-hint { font-size: 11px; color: var(--text3); text-align: center; padding: 5px 14px 8px; flex-shrink: 0; }
@@ -308,6 +313,18 @@ footer.controls-bar { height: var(--ftr); flex-shrink: 0; display: flex; align-i
 .le-rh.s  { bottom:-6px; left:50%; transform:translateX(-50%); cursor: s-resize; }
 .le-rh.w  { left:-6px; top:50%; transform:translateY(-50%); cursor: w-resize; }
 .le-rh.e  { right:-6px; top:50%; transform:translateY(-50%); cursor: e-resize; }
+/* プレビュー表示 */
+.le-static { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px; pointer-events:none; }
+.le-preview-content { display:none; width:100%; height:100%; overflow:hidden; pointer-events:none; box-sizing:border-box; padding:6px; }
+body.le-prev-on .le-static  { display:none; }
+body.le-prev-on .le-preview-content { display:flex; flex-direction:column; align-items:center; justify-content:center; }
+.le-prev-name { font-size:clamp(14px,15%,60px); font-weight:900; color:var(--text); white-space:nowrap; line-height:1; }
+.le-prev-full { font-size:clamp(8px,7%,16px); color:var(--text2); white-space:nowrap; margin-top:4px; }
+.le-prev-svg  { max-width:100%; max-height:100%; flex:1; min-height:0; }
+.le-prev-flist { width:100%; overflow:hidden; }
+.le-prev-frow { display:flex; align-items:center; gap:4px; padding:2px 0; border-bottom:0.5px solid var(--border); }
+.le-prev-fdot { width:20px; height:20px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:9px; font-weight:700; color:#fff; flex-shrink:0; }
+.le-prev-fd { font-size:clamp(8px,7%,12px); color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
 /* ── 音声インジケーター ── */
 .audio-indicator { position: fixed; top: calc(var(--hdr) + 7px); right: 10px; z-index: 40; display: none; align-items: center; justify-content: center; width: 30px; height: 30px; background: rgba(30,30,30,0.82); border: 0.5px solid #484848; border-radius: 50%; cursor: pointer; -webkit-tap-highlight-color: transparent; backdrop-filter: blur(6px); transition: opacity 0.15s; }
@@ -521,28 +538,39 @@ footer.controls-bar { height: var(--ftr); flex-shrink: 0; display: flex; align-i
   <div class="le-orient-bar">
     <span class="sig-btn active" id="le-or-p" onclick="leSetOrient('portrait')">縦画面</span>
     <span class="sig-btn" id="le-or-l" onclick="leSetOrient('landscape')">横画面</span>
+    <span class="sig-btn" id="le-prev-btn" onclick="toggleLePreview()" style="margin-left:12px;">👁 プレビュー</span>
   </div>
   <div class="le-canvas-wrap" id="le-canvas-wrap">
     <div class="le-canvas" id="le-canvas">
       <div class="le-block" id="le-b-ci" data-block="ci">
-        <span class="le-block-icon">🎵</span>
-        <span class="le-block-label">コード名</span>
+        <div class="le-zbadge" id="le-z-ci"></div>
+        <div class="le-static"><span class="le-block-icon">🎵</span><span class="le-block-label">コード名</span></div>
+        <div class="le-preview-content" id="le-prev-ci">
+          <div class="le-prev-name">Am</div>
+          <div class="le-prev-full">Aマイナー — 初心者</div>
+        </div>
         <div class="le-rh nw" data-dir="nw"></div><div class="le-rh ne" data-dir="ne"></div>
         <div class="le-rh sw" data-dir="sw"></div><div class="le-rh se" data-dir="se"></div>
         <div class="le-rh n"  data-dir="n"></div><div class="le-rh s" data-dir="s"></div>
         <div class="le-rh w"  data-dir="w"></div><div class="le-rh e" data-dir="e"></div>
       </div>
       <div class="le-block" id="le-b-fret" data-block="fret">
-        <span class="le-block-icon">🎸</span>
-        <span class="le-block-label">フレット図</span>
+        <div class="le-zbadge" id="le-z-fret"></div>
+        <div class="le-static"><span class="le-block-icon">🎸</span><span class="le-block-label">フレット図</span></div>
+        <div class="le-preview-content" id="le-prev-fret">
+          <svg id="le-prev-fretsvg" class="le-prev-svg" viewBox="0 0 140 200"></svg>
+        </div>
         <div class="le-rh nw" data-dir="nw"></div><div class="le-rh ne" data-dir="ne"></div>
         <div class="le-rh sw" data-dir="sw"></div><div class="le-rh se" data-dir="se"></div>
         <div class="le-rh n"  data-dir="n"></div><div class="le-rh s" data-dir="s"></div>
         <div class="le-rh w"  data-dir="w"></div><div class="le-rh e" data-dir="e"></div>
       </div>
       <div class="le-block" id="le-b-fingers" data-block="fingers">
-        <span class="le-block-icon">🖐️</span>
-        <span class="le-block-label">指使い</span>
+        <div class="le-zbadge" id="le-z-fingers"></div>
+        <div class="le-static"><span class="le-block-icon">🖐️</span><span class="le-block-label">指使い</span></div>
+        <div class="le-preview-content" id="le-prev-fingers">
+          <div class="le-prev-flist" id="le-prev-flist"></div>
+        </div>
         <div class="le-rh nw" data-dir="nw"></div><div class="le-rh ne" data-dir="ne"></div>
         <div class="le-rh sw" data-dir="sw"></div><div class="le-rh se" data-dir="se"></div>
         <div class="le-rh n"  data-dir="n"></div><div class="le-rh s" data-dir="s"></div>
@@ -713,6 +741,8 @@ function showView(id,el){
   document.getElementById('view-'+id).classList.add('active');
   document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
   el.classList.add('active');
+  // コードタブに戻った時、ペインが表示された後にカスタムレイアウトを再適用
+  if(id === 'chord') requestAnimationFrame(() => applyCustomLayouts());
 }
 function toggleSettings(){document.getElementById('settings-overlay').classList.toggle('open');}
 function onOverlayClick(e){if(e.target===document.getElementById('settings-overlay'))toggleSettings();}
@@ -932,6 +962,51 @@ function resetTimer(){
 /* ── レイアウトエディタ ── */
 const LE_KEY = 'guitar-custom-layout';
 let customLayouts = { portrait: null, landscape: null };
+
+// z-order: { ci: 3, fret: 2, fingers: 1 } → 数字が大きいほど手前
+const LE_KEYS = ['ci','fret','fingers'];
+let leZOrder = { ci: 3, fret: 2, fingers: 1 };
+
+function leApplyZOrder(){
+  LE_KEYS.forEach(k => {
+    const block = document.getElementById('le-b-' + k);
+    const badge = document.getElementById('le-z-' + k);
+    if(!block || !badge) return;
+    const z = leZOrder[k];
+    block.style.zIndex = z;
+    // 手前から1,2,3番目の順位を計算
+    const sorted = [...LE_KEYS].sort((a,b) => leZOrder[b] - leZOrder[a]);
+    const rank = sorted.indexOf(k) + 1; // 1=最前面
+    const labels = ['前','中','後'];
+    badge.textContent = labels[rank - 1];
+    badge.className = 'le-zbadge ' + ['z-front','z-mid','z-back'][rank - 1];
+  });
+}
+
+function leBringToFront(key){
+  // keyを最大に、他を1つずつ下げる
+  const maxZ = Math.max(...LE_KEYS.map(k => leZOrder[k]));
+  if(leZOrder[key] === maxZ) return; // すでに最前面
+  const oldZ = leZOrder[key];
+  LE_KEYS.forEach(k => {
+    if(k !== key && leZOrder[k] > oldZ) leZOrder[k]--;
+  });
+  leZOrder[key] = maxZ;
+  leApplyZOrder();
+}
+
+// z-orderをlayout dataに含めて保存・復元
+function leZToLayout(layout){
+  if(!layout) return;
+  LE_KEYS.forEach(k => { if(layout[k]) layout[k].z = leZOrder[k]; });
+}
+
+function leZFromLayout(layout){
+  if(!layout) return;
+  const hasZ = LE_KEYS.every(k => layout[k] && layout[k].z != null);
+  if(hasZ) LE_KEYS.forEach(k => { leZOrder[k] = layout[k].z; });
+  else leZOrder = { ci: 3, fret: 2, fingers: 1 };
+}
 let leOrient = 'portrait';
 let leDragState = null;
 
@@ -953,6 +1028,7 @@ function saveCustomLayout(){
       y: parseFloat(b.style.top)    / ch,
       w: parseFloat(b.style.width)  / cw,
       h: parseFloat(b.style.height) / ch,
+      z: leZOrder[b.dataset.block],
     };
   });
   customLayouts[leOrient] = layout;
@@ -970,6 +1046,45 @@ function resetCustomLayout(){
 }
 
 // 現在編集中の向きだけリセットしてエディタに反映
+/* ── レイアウトエディタ プレビュー ── */
+let lePreviewOn = false;
+
+function toggleLePreview(){
+  lePreviewOn = !lePreviewOn;
+  document.body.classList.toggle('le-prev-on', lePreviewOn);
+  document.getElementById('le-prev-btn').classList.toggle('active', lePreviewOn);
+  if(lePreviewOn) leRenderPreview();
+}
+
+function leRenderPreview(){
+  const AM = ALL_CHORDS.find(c => c.name === 'Am');
+  if(!AM) return;
+
+  // フレット図SVG（縦向き固定、viewBox合わせ）
+  const svg = document.getElementById('le-prev-fretsvg');
+  if(svg){
+    const horiz = fretIsHoriz;
+    if(horiz){
+      svg.setAttribute('viewBox','0 0 200 120');
+      drawFretH(AM, svg);
+    } else {
+      svg.setAttribute('viewBox','0 0 140 200');
+      drawFretV(AM, svg);
+    }
+  }
+
+  // 指使いリスト
+  const flist = document.getElementById('le-prev-flist');
+  if(flist){
+    flist.innerHTML = AM.fingers.map(fi =>
+      `<div class="le-prev-frow">
+        <div class="le-prev-fdot" style="background:${FC[fi.f]||'#555'}">${FN[fi.f]}</div>
+        <div class="le-prev-fd">${fi.d}<br><span style="font-size:0.85em;color:var(--text3)">${fi.sub}</span></div>
+      </div>`
+    ).join('');
+  }
+}
+
 function leResetCurrent(){
   customLayouts[leOrient] = null;
   leInitCanvas();
@@ -991,10 +1106,11 @@ function applyLayoutToPane(pane, layout, isCur){
     : { ci: pane.querySelector('.next-chord-info'),      fret: pane.querySelector('.fret-next'),       fingers: pane.querySelector('.next-finger-list') };
   Object.entries(layout).forEach(([key, v]) => {
     const el = elMap[key]; if(!el) return;
-    el.style.left   = (v.x * pw) + 'px';
-    el.style.top    = (v.y * ph) + 'px';
-    el.style.width  = (v.w * pw) + 'px';
-    el.style.height = (v.h * ph) + 'px';
+    el.style.left    = (v.x * pw) + 'px';
+    el.style.top     = (v.y * ph) + 'px';
+    el.style.width   = (v.w * pw) + 'px';
+    el.style.height  = (v.h * ph) + 'px';
+    if(v.z != null) el.style.zIndex = v.z;
   });
 }
 
@@ -1048,26 +1164,22 @@ function leInitCanvas(){
 
   let cw, ch;
   if(isP){
-    // 縦画面を表すフレーム：スマホ比率 (9:19.5)
+    // 縦画面：スマホ縦持ち比率 9:19.5
     ch = wH;
     cw = ch * (9/19.5);
     if(cw > wW){ cw = wW; ch = cw * (19.5/9); }
   } else {
-    // 横画面：利用可能領域をほぼすべて使う
+    // 横画面：スマホ横持ち比率 19.5:9（縦の逆）
     cw = wW;
-    ch = wH;
-    // ヘッダー＋フッターを除いた実際のコードペインの縦横比に近づける
-    const approxPaneH = window.innerHeight - 60 - 52; // header + footer
-    const approxPaneW = window.innerWidth / 2;
-    const targetRatio = approxPaneW / approxPaneH;
-    if(cw / ch > targetRatio){ cw = ch * targetRatio; }
-    else { ch = cw / targetRatio; }
+    ch = cw * (9/19.5);
+    if(ch > wH){ ch = wH; cw = ch * (19.5/9); }
   }
   canvas.style.width  = Math.round(cw) + 'px';
   canvas.style.height = Math.round(ch) + 'px';
 
   const saved = customLayouts[leOrient];
   const defs  = LE_DEFAULTS[leOrient];
+  leZFromLayout(saved); // z-orderを復元（保存データにあれば）
   canvas.querySelectorAll('.le-block').forEach(b => {
     const key = b.dataset.block;
     const v = (saved && saved[key]) ? saved[key] : defs[key];
@@ -1076,6 +1188,7 @@ function leInitCanvas(){
     b.style.width  = Math.round(v.w * cw) + 'px';
     b.style.height = Math.round(v.h * ch) + 'px';
   });
+  leApplyZOrder(); // バッジとz-indexを反映
 }
 
 // ドラッグ＋8方向リサイズ
@@ -1089,6 +1202,7 @@ function leInitCanvas(){
     const block = e.target.closest('.le-block');
     if(!block) return;
     e.preventDefault();
+    leBringToFront(block.dataset.block); // タッチしたブロックを最前面へ
     const canvas = document.getElementById('le-canvas');
     const p = pt(e);
     block.classList.add('dragging');
@@ -1179,8 +1293,15 @@ window.addEventListener('resize', () => { applyCustomLayouts(); });
 
     if(isEditorOpen()){
       // どちらかの指の下にあるブロックを対象にする
-      const b = blockAtPoint(e.touches[0].clientX, e.touches[0].clientY)
-             || blockAtPoint(e.touches[1].clientX, e.touches[1].clientY);
+      const b0 = blockAtPoint(e.touches[0].clientX, e.touches[0].clientY);
+      const b1 = blockAtPoint(e.touches[1].clientX, e.touches[1].clientY);
+      // 両方ブロックに当たった場合はz-indexが高い（手前の）方を優先
+      let b;
+      if(b0 && b1 && b0 !== b1){
+        b = (leZOrder[b0.dataset.block] >= leZOrder[b1.dataset.block]) ? b0 : b1;
+      } else {
+        b = b0 || b1;
+      }
       pinchBlock = b;
       if(b){
         pinchBlockStartW = parseFloat(b.style.width)  || b.offsetWidth;
