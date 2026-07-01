@@ -30,14 +30,25 @@ html, body {
 /* ── Header ── */
 header {
   height: var(--hdr); flex-shrink: 0;
-  display: flex; align-items: center; gap: 8px; padding: 0 12px;
+  display: flex; flex-direction: column; justify-content: center;
   background: var(--bg); border-bottom: 0.5px solid var(--border); z-index: 20;
 }
+.hdr-row1 { display: flex; align-items: center; gap: 8px; padding: 0 12px; height: 40px; }
+.hdr-row2 { display: flex; align-items: center; justify-content: center; padding: 0 12px 6px; }
 .hdr-title { font-size: 14px; font-weight: 700; flex: 1; white-space: nowrap; }
 .tab-nav { display: flex; background: var(--surface2); border-radius: 20px; padding: 3px; gap: 2px; }
 .tab-btn { font-size: 12px; padding: 3px 11px; border-radius: 17px; border: none; background: transparent; color: var(--text2); cursor: pointer; white-space: nowrap; -webkit-tap-highlight-color: transparent; transition: all 0.15s; }
 .tab-btn.active { background: var(--accent); color: #fff; }
 .gear-btn { font-size: 18px; background: none; border: none; color: var(--text2); cursor: pointer; padding: 6px; line-height: 1; -webkit-tap-highlight-color: transparent; }
+/* 縦画面は2段ヘッダー、横画面は1段 */
+@media (orientation: portrait) {
+  :root { --hdr: 70px; }
+}
+@media (orientation: landscape) {
+  header { flex-direction: row; align-items: center; padding: 0 12px; gap: 8px; }
+  .hdr-row1 { flex: 1; display: contents; } /* 横画面はrow1の中身をheaderに直接並べる */
+  .hdr-row2 { padding: 0; }
+}
 
 /* ── Timer bar ── */
 .timer-bar { height: 3px; flex-shrink: 0; background: var(--border); overflow: hidden; display: none; }
@@ -62,52 +73,56 @@ header {
 /* ── Chord pane ── */
 .chord-pane { flex: 1; min-width: 0; min-height: 0; display: flex; align-items: center; gap: 8px; overflow: hidden; }
 @media (orientation: portrait) {
-  .chord-pane { flex-direction: row; padding: 8px 12px; }
-  .chord-info { flex-shrink: 0; min-width: 54px; max-width: 80px; display: flex; flex-direction: column; justify-content: center; }
-  .chord-name { font-size: calc(34px * var(--sc)); }
-  .chord-full { font-size: calc(10px * var(--sc)); }
-  .diagram-wrap { flex: 1; display: flex; flex-direction: row; gap: 8px; align-items: center; min-width: 0; overflow: hidden; }
-  svg.fret-main { width: calc(88px * var(--sc)); height: auto; flex-shrink: 0; }
-  svg.fret-next { width: calc(78px * var(--sc)); height: auto; flex-shrink: 0; }
+  /* グリッド: コード名(全幅上段) / フレット図(左下) + 指リスト(右下) */
+  .chord-pane { display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto 1fr; grid-template-areas: "ci ci" "fret fingers"; padding: 6px 14px 4px; gap: 6px; }
+  .chord-info  { grid-area: ci; }
+  svg.fret-main { grid-area: fret; height: calc((100dvh - var(--hdr) - var(--ftr) - var(--hist)) / 2 * 0.72); width: auto; }
+  .finger-list { grid-area: fingers; min-width: 0; overflow: hidden; display: flex; flex-direction: column; justify-content: center; }
+  .chord-name { font-size: calc(30px * var(--sc)); white-space: nowrap; line-height: 1.1; }
+  .chord-full { font-size: calc(10px * var(--sc)); white-space: nowrap; margin-top: 2px; }
   .finger-head { display: none; }
   .finger-row { padding: calc(3px * var(--sc)) 0; }
   .fd { font-size: calc(11px * var(--sc)); }
   .fs { font-size: calc(9px * var(--sc)); }
   .fdot { width: calc(20px * var(--sc)); height: calc(20px * var(--sc)); font-size: calc(9px * var(--sc)); }
-  .next-chord-info { flex-shrink: 0; min-width: 46px; max-width: 80px; display: flex; flex-direction: column; justify-content: center; }
-  .next-chord-name { font-size: calc(26px * var(--sc)); }
-  .next-chord-full { font-size: calc(9px * var(--sc)); }
+
+  /* 次のコード: 同じグリッド構造 */
+  .next-pane { display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto 1fr; grid-template-areas: "nci nci" "nfret nfingers"; padding: 6px 14px 4px; gap: 6px; }
+  .next-chord-info  { grid-area: nci; }
+  svg.fret-next { grid-area: nfret; height: calc((100dvh - var(--hdr) - var(--ftr) - var(--hist)) / 2 * 0.60); width: auto; }
+  .next-finger-list { grid-area: nfingers; min-width: 0; overflow: hidden; display: flex; flex-direction: column; justify-content: center; }
+  .next-chord-name { font-size: calc(22px * var(--sc)); white-space: nowrap; }
+  .next-chord-full { font-size: calc(9px * var(--sc)); white-space: nowrap; }
   .next-pane-label { font-size: calc(9px * var(--sc)); }
   .nfdot { width: calc(17px * var(--sc)); height: calc(17px * var(--sc)); font-size: calc(8px * var(--sc)); }
   .nfd { font-size: calc(10px * var(--sc)); }
   .next-finger-row { padding: calc(3px * var(--sc)) 0; }
-  .next-diagram-wrap { flex: 1; display: flex; flex-direction: row; gap: 8px; align-items: center; min-width: 0; overflow: hidden; }
-  .next-pane { flex-direction: row; padding: 8px 12px; }
 }
 @media (orientation: landscape) {
-  .chord-pane { flex-direction: row; padding: 6px 12px; }
-  .chord-info { flex-shrink: 0; width: max-content; max-width: calc(200px * var(--sc)); display: flex; flex-direction: column; justify-content: center; }
+  /* グリッド: コード名(左) / フレット図(中) / 指リスト(右) */
+  .chord-pane { display: grid; grid-template-columns: max-content auto 1fr; grid-template-rows: 1fr; grid-template-areas: "ci fret fingers"; gap: 10px; padding: 6px 12px; align-items: center; }
+  .chord-info  { grid-area: ci; display: flex; flex-direction: column; justify-content: center; max-width: calc(200px * var(--sc)); }
+  svg.fret-main { grid-area: fret; width: calc(72px * var(--sc)); height: auto; }
+  .finger-list { grid-area: fingers; min-width: 0; overflow: hidden; display: flex; flex-direction: column; justify-content: center; }
   .chord-name { font-size: calc(28px * var(--sc)); line-height: 1; white-space: nowrap; }
-  .chord-full { font-size: calc(10px * var(--sc)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: calc(190px * var(--sc)); }
-  .diagram-wrap { flex: 1; display: flex; flex-direction: row; flex-wrap: wrap; gap: 8px; align-items: flex-start; align-content: flex-start; min-width: 0; overflow: hidden; }
-  svg.fret-main { width: calc(72px * var(--sc)); height: auto; flex-shrink: 0; }
-  svg.fret-next { width: calc(64px * var(--sc)); height: auto; flex-shrink: 0; }
+  .chord-full { font-size: calc(10px * var(--sc)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .finger-head { display: none; }
-  .finger-list { flex: 1; min-width: calc(100px * var(--sc)); }
   .finger-row { padding: calc(2px * var(--sc)) 0; }
   .fd { font-size: calc(11px * var(--sc)); line-height: 1.2; }
   .fs { font-size: calc(9px * var(--sc)); }
   .fdot { width: calc(20px * var(--sc)); height: calc(20px * var(--sc)); font-size: calc(9px * var(--sc)); }
-  .next-chord-info { flex-shrink: 0; width: max-content; max-width: calc(180px * var(--sc)); display: flex; flex-direction: column; justify-content: center; }
+
+  /* 次のコード */
+  .next-pane { display: grid; grid-template-columns: max-content auto 1fr; grid-template-rows: 1fr; grid-template-areas: "nci nfret nfingers"; gap: 10px; padding: 6px 12px; align-items: center; }
+  .next-chord-info { grid-area: nci; display: flex; flex-direction: column; justify-content: center; max-width: calc(180px * var(--sc)); }
+  svg.fret-next { grid-area: nfret; width: calc(64px * var(--sc)); height: auto; }
+  .next-finger-list { grid-area: nfingers; min-width: 0; overflow: hidden; display: flex; flex-direction: column; justify-content: center; }
   .next-chord-name { font-size: calc(24px * var(--sc)); white-space: nowrap; }
-  .next-chord-full { font-size: calc(9px * var(--sc)); margin: 2px 0 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: calc(170px * var(--sc)); }
+  .next-chord-full { font-size: calc(9px * var(--sc)); margin: 2px 0 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .next-pane-label { font-size: calc(9px * var(--sc)); }
   .nfdot { width: calc(17px * var(--sc)); height: calc(17px * var(--sc)); font-size: calc(8px * var(--sc)); }
   .nfd { font-size: calc(10px * var(--sc)); }
   .next-finger-row { padding: calc(2px * var(--sc)) 0; }
-  .next-diagram-wrap { flex: 1; display: flex; flex-direction: row; flex-wrap: wrap; gap: 8px; align-items: flex-start; align-content: flex-start; min-width: 0; overflow: hidden; }
-  .next-finger-list { flex: 1; min-width: calc(90px * var(--sc)); }
-  .next-pane { flex-direction: row; align-items: center; padding: 6px 12px; overflow: hidden; }
 }
 
 /* ── Shared chord styles ── */
@@ -136,47 +151,24 @@ svg.fret-main, svg.fret-next { display: block; }
 .next-finger-row:last-child { border-bottom: none; }
 .nfdot { border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 600; flex-shrink: 0; color: #fff; }
 
-/* ── Horiz fret (縦画面) ── */
+/* ── Horiz fret 縦画面: SVG全幅 + 指リスト下 ── */
 @media (orientation: portrait) {
-  body.horiz-fret svg.fret-main { width: calc(120px * var(--sc)); }
-  body.horiz-fret svg.fret-next { width: calc(105px * var(--sc)); }
+  body.horiz-fret .chord-pane { grid-template-areas: "ci ci" "fret fret" "fingers fingers"; grid-template-columns: 1fr; grid-template-rows: auto auto 1fr; }
+  body.horiz-fret svg.fret-main { height: auto; width: calc(120px * var(--sc)); }
+  body.horiz-fret .next-pane  { grid-template-areas: "nci nci" "nfret nfret" "nfingers nfingers"; grid-template-columns: 1fr; grid-template-rows: auto auto 1fr; }
+  body.horiz-fret svg.fret-next { height: auto; width: calc(105px * var(--sc)); }
 }
-/* ── Horiz fret (横画面) — SVGの下に指リストを縦積み ── */
+/* ── Horiz fret 横画面: SVG大きめ + 指リスト横並びチップ ── */
 @media (orientation: landscape) {
-  body.horiz-fret .diagram-wrap {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: calc(6px * var(--sc));
-  }
+  body.horiz-fret .chord-pane { grid-template-columns: max-content auto 1fr; grid-template-areas: "ci fret fingers"; }
   body.horiz-fret svg.fret-main { width: calc(210px * var(--sc)); height: auto; }
-  body.horiz-fret .finger-list {
-    display: flex; flex-direction: row; flex-wrap: wrap;
-    gap: calc(4px * var(--sc));
-  }
-  body.horiz-fret .finger-row {
-    border-bottom: none;
-    padding: calc(2px * var(--sc)) calc(8px * var(--sc)) calc(2px * var(--sc)) calc(4px * var(--sc));
-    background: var(--surface2);
-    border-radius: 20px;
-  }
+  body.horiz-fret .finger-list { display: flex; flex-direction: row; flex-wrap: wrap; gap: calc(4px * var(--sc)); align-content: flex-start; }
+  body.horiz-fret .finger-row { border-bottom: none; padding: calc(2px * var(--sc)) calc(8px * var(--sc)) calc(2px * var(--sc)) calc(4px * var(--sc)); background: var(--surface2); border-radius: 20px; }
   body.horiz-fret .fs { display: none; }
-
-  body.horiz-fret .next-diagram-wrap {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: calc(5px * var(--sc));
-  }
+  body.horiz-fret .next-pane { grid-template-columns: max-content auto 1fr; grid-template-areas: "nci nfret nfingers"; }
   body.horiz-fret svg.fret-next { width: calc(180px * var(--sc)); height: auto; }
-  body.horiz-fret .next-finger-list {
-    display: flex; flex-direction: row; flex-wrap: wrap;
-    gap: calc(4px * var(--sc));
-  }
-  body.horiz-fret .next-finger-row {
-    border-bottom: none;
-    padding: calc(2px * var(--sc)) calc(8px * var(--sc)) calc(2px * var(--sc)) calc(4px * var(--sc));
-    background: var(--surface2);
-    border-radius: 20px;
-  }
+  body.horiz-fret .next-finger-list { display: flex; flex-direction: row; flex-wrap: wrap; gap: calc(4px * var(--sc)); align-content: flex-start; }
+  body.horiz-fret .next-finger-row { border-bottom: none; padding: calc(2px * var(--sc)) calc(8px * var(--sc)) calc(2px * var(--sc)) calc(4px * var(--sc)); background: var(--surface2); border-radius: 20px; }
 }
 
 /* ── Metronome view ── */
@@ -284,6 +276,39 @@ footer.controls-bar { height: var(--ftr); flex-shrink: 0; display: flex; align-i
 .profile-first { text-align: center; padding: 20px 0 8px; }
 .profile-first p { font-size: 13px; color: var(--text2); margin-bottom: 16px; }
 
+/* ── カスタムレイアウト（絶対配置モード） ── */
+.chord-pane.custom-layout { position: relative !important; display: block !important; }
+.chord-pane.custom-layout > * { position: absolute !important; box-sizing: border-box; }
+
+/* ── レイアウトエディタ ── */
+.le-overlay { position: fixed; inset: 0; z-index: 70; background: var(--bg); display: none; flex-direction: column; }
+.le-overlay.open { display: flex; }
+.le-hdr { display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-bottom: 0.5px solid var(--border); background: var(--surface); flex-shrink: 0; flex-wrap: wrap; }
+.le-hdr-title { flex: 1; font-size: 14px; font-weight: 700; text-align: center; min-width: 60px; }
+.le-btn { font-size: 12px; padding: 6px 12px; border-radius: 20px; border: 0.5px solid var(--border); background: var(--surface2); color: var(--text2); cursor: pointer; -webkit-tap-highlight-color: transparent; white-space: nowrap; }
+.le-btn.save { background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 700; }
+.le-btn.danger { color: #e05; border-color: #e05; }
+.le-orient-bar { display: flex; justify-content: center; gap: 8px; padding: 6px 14px; flex-shrink: 0; border-bottom: 0.5px solid var(--border); background: var(--surface); }
+.le-canvas-wrap { flex: 1; display: flex; align-items: center; justify-content: center; padding: 8px; min-height: 0; overflow: hidden; }
+/* canvas = エリア全体 */
+.le-canvas { position: relative; background: var(--surface2); border: 2px solid var(--accent); border-radius: 10px; overflow: hidden; box-shadow: 0 0 0 4px rgba(212,129,58,0.15); }
+/* blocks */
+.le-block { position: absolute; border: 2px solid var(--accent); border-radius: 8px; background: rgba(212,129,58,0.13); display: flex; flex-direction: column; align-items: center; justify-content: center; cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; gap: 3px; min-width: 44px; min-height: 32px; box-sizing: border-box; }
+.le-block.dragging { cursor: grabbing; background: rgba(212,129,58,0.28); z-index: 10; box-shadow: 0 4px 16px rgba(0,0,0,0.4); }
+.le-block-icon { font-size: 18px; pointer-events: none; line-height: 1; }
+.le-block-label { font-size: 10px; font-weight: 700; color: var(--accent); pointer-events: none; text-align: center; line-height: 1.2; padding: 0 4px; }
+.le-hint { font-size: 11px; color: var(--text3); text-align: center; padding: 5px 14px 8px; flex-shrink: 0; }
+/* 8方向リサイズハンドル */
+.le-rh { position: absolute; width: 14px; height: 14px; background: var(--accent); border-radius: 50%; opacity: 0.85; touch-action: none; z-index: 5; }
+.le-rh.nw { top:-6px;  left:-6px;  cursor: nw-resize; }
+.le-rh.ne { top:-6px;  right:-6px; cursor: ne-resize; }
+.le-rh.sw { bottom:-6px; left:-6px;  cursor: sw-resize; }
+.le-rh.se { bottom:-6px; right:-6px; cursor: se-resize; }
+.le-rh.n  { top:-6px;  left:50%; transform:translateX(-50%); cursor: n-resize; }
+.le-rh.s  { bottom:-6px; left:50%; transform:translateX(-50%); cursor: s-resize; }
+.le-rh.w  { left:-6px; top:50%; transform:translateY(-50%); cursor: w-resize; }
+.le-rh.e  { right:-6px; top:50%; transform:translateY(-50%); cursor: e-resize; }
+
 /* ── 音声インジケーター ── */
 .audio-indicator { position: fixed; top: calc(var(--hdr) + 7px); right: 10px; z-index: 40; display: none; align-items: center; justify-content: center; width: 30px; height: 30px; background: rgba(30,30,30,0.82); border: 0.5px solid #484848; border-radius: 50%; cursor: pointer; -webkit-tap-highlight-color: transparent; backdrop-filter: blur(6px); transition: opacity 0.15s; }
 .audio-indicator.visible { display: flex; }
@@ -295,14 +320,18 @@ footer.controls-bar { height: var(--ftr); flex-shrink: 0; display: flex; align-i
 <body>
 <div class="app">
   <header>
-    <div class="hdr-title">🎸 ギターコード練習</div>
-    <span class="profile-chip" id="profile-chip" onclick="openProfileModal()">👤 —</span>
-    <div class="tab-nav">
-      <button class="tab-btn active" onclick="showView('chord',this)">コード</button>
-      <button class="tab-btn" onclick="showView('metro',this)">メトロノーム</button>
-      <button class="tab-btn" onclick="showView('record',this)">記録</button>
+    <div class="hdr-row1">
+      <div class="hdr-title">🎸 ギターコード練習</div>
+      <span class="profile-chip" id="profile-chip" onclick="openProfileModal()">👤 —</span>
+      <button class="gear-btn" onclick="toggleSettings()">⚙</button>
     </div>
-    <button class="gear-btn" onclick="toggleSettings()">⚙</button>
+    <div class="hdr-row2">
+      <div class="tab-nav">
+        <button class="tab-btn active" onclick="showView('chord',this)">コード</button>
+        <button class="tab-btn" onclick="showView('metro',this)">メトロノーム</button>
+        <button class="tab-btn" onclick="showView('record',this)">記録</button>
+      </div>
+    </div>
   </header>
 
   <div class="timer-bar" id="timer-bar"><div class="timer-fill" id="timer-fill" style="width:100%"></div></div>
@@ -310,17 +339,15 @@ footer.controls-bar { height: var(--ftr); flex-shrink: 0; display: flex; align-i
   <div class="main-content">
     <div class="view active" id="view-chord">
       <div class="chord-split">
-        <div class="chord-pane">
-          <div class="chord-info">
+        <div class="chord-pane" id="chord-pane-cur">
+          <div class="chord-info le-el" data-le="chordInfo">
             <div class="chord-name" id="cname"></div>
             <div class="chord-full" id="cfull"></div>
           </div>
-          <div class="diagram-wrap">
-            <svg class="fret-main" id="fretsvg" viewBox="0 0 140 200"></svg>
-            <div class="finger-list">
-              <div class="finger-head">指使い</div>
-              <div id="finger-list"></div>
-            </div>
+          <svg class="fret-main le-el" id="fretsvg" data-le="fret" viewBox="0 0 140 200"></svg>
+          <div class="finger-list le-el" data-le="fingers">
+            <div class="finger-head">指使い</div>
+            <div id="finger-list"></div>
           </div>
         </div>
         <div class="chord-pane next-pane" id="next-pane">
@@ -332,10 +359,8 @@ footer.controls-bar { height: var(--ftr); flex-shrink: 0; display: flex; align-i
             <div class="next-chord-name" id="next-name"></div>
             <div class="next-chord-full" id="next-full"></div>
           </div>
-          <div class="next-diagram-wrap">
-            <svg class="fret-next" id="next-fretsvg" viewBox="0 0 140 200"></svg>
-            <div class="next-finger-list" id="next-finger-list"></div>
-          </div>
+          <svg class="fret-next" id="next-fretsvg" viewBox="0 0 140 200"></svg>
+          <div class="next-finger-list" id="next-finger-list"></div>
         </div>
       </div>
     </div>
@@ -437,7 +462,7 @@ footer.controls-bar { height: var(--ftr); flex-shrink: 0; display: flex; align-i
         <div class="s-label">表示サイズ</div>
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
           <span class="auto-badge active" id="auto-btn" onclick="setAutoScale(!autoScale)">自動</span>
-          <span style="font-size:11px;color:var(--text2);" id="auto-info">画面サイズに合わせて自動調整</span>
+          <span style="font-size:11px;color:var(--text2);" id="auto-info">自動サイズを基準に倍率を調整</span>
         </div>
         <div class="scale-row">
           <span style="font-size:11px;color:var(--text3);">小</span>
@@ -475,8 +500,57 @@ footer.controls-bar { height: var(--ftr); flex-shrink: 0; display: flex; align-i
         <div id="timer-text" style="font-size:11px;color:var(--text2);display:none;"></div>
       </div>
 
+      <div class="s-row">
+        <div class="s-label">レイアウト</div>
+        <button class="le-btn" onclick="openLayoutEditor()">✏️ 自由配置を編集</button>
+        <button class="le-btn" id="le-reset-btn" onclick="resetCustomLayout()" style="display:none;margin-top:6px;">↺ デフォルトに戻す</button>
+      </div>
+
     </div>
   </div>
+</div>
+
+<!-- レイアウトエディタ -->
+<div class="le-overlay" id="le-overlay">
+  <div class="le-hdr">
+    <button class="le-btn" onclick="closeLayoutEditor()">✕ キャンセル</button>
+    <span class="le-hdr-title">レイアウト編集</span>
+    <button class="le-btn danger" onclick="leResetCurrent()">↺ リセット</button>
+    <button class="le-btn save" onclick="saveCustomLayout()">✓ 保存</button>
+  </div>
+  <div class="le-orient-bar">
+    <span class="sig-btn active" id="le-or-p" onclick="leSetOrient('portrait')">縦画面</span>
+    <span class="sig-btn" id="le-or-l" onclick="leSetOrient('landscape')">横画面</span>
+  </div>
+  <div class="le-canvas-wrap" id="le-canvas-wrap">
+    <div class="le-canvas" id="le-canvas">
+      <div class="le-block" id="le-b-ci" data-block="ci">
+        <span class="le-block-icon">🎵</span>
+        <span class="le-block-label">コード名</span>
+        <div class="le-rh nw" data-dir="nw"></div><div class="le-rh ne" data-dir="ne"></div>
+        <div class="le-rh sw" data-dir="sw"></div><div class="le-rh se" data-dir="se"></div>
+        <div class="le-rh n"  data-dir="n"></div><div class="le-rh s" data-dir="s"></div>
+        <div class="le-rh w"  data-dir="w"></div><div class="le-rh e" data-dir="e"></div>
+      </div>
+      <div class="le-block" id="le-b-fret" data-block="fret">
+        <span class="le-block-icon">🎸</span>
+        <span class="le-block-label">フレット図</span>
+        <div class="le-rh nw" data-dir="nw"></div><div class="le-rh ne" data-dir="ne"></div>
+        <div class="le-rh sw" data-dir="sw"></div><div class="le-rh se" data-dir="se"></div>
+        <div class="le-rh n"  data-dir="n"></div><div class="le-rh s" data-dir="s"></div>
+        <div class="le-rh w"  data-dir="w"></div><div class="le-rh e" data-dir="e"></div>
+      </div>
+      <div class="le-block" id="le-b-fingers" data-block="fingers">
+        <span class="le-block-icon">🖐️</span>
+        <span class="le-block-label">指使い</span>
+        <div class="le-rh nw" data-dir="nw"></div><div class="le-rh ne" data-dir="ne"></div>
+        <div class="le-rh sw" data-dir="sw"></div><div class="le-rh se" data-dir="se"></div>
+        <div class="le-rh n"  data-dir="n"></div><div class="le-rh s" data-dir="s"></div>
+        <div class="le-rh w"  data-dir="w"></div><div class="le-rh e" data-dir="e"></div>
+      </div>
+    </div>
+  </div>
+  <div class="le-hint">ドラッグで移動 ／ 丸ハンドルでリサイズ</div>
 </div>
 
 <script>
@@ -579,30 +653,57 @@ function buildChordGrid(){
 /* ── 表示サイズ ── */
 function computeAutoScale(){
   const w=window.innerWidth, h=window.innerHeight, ls=w>h;
-  return ls ? Math.min(w/680,h/280,1.6) : Math.min(w/390,h/680,1.6);
-}
-function applyScale(sc){document.documentElement.style.setProperty('--sc',sc);}
-function setAutoScale(on){
-  autoScale=on;
-  document.getElementById('auto-btn').classList.toggle('active',on);
-  document.getElementById('auto-info').textContent=on?'画面サイズに合わせて自動調整':'スライダーで手動調整中';
-  if(on){
-    const sc=computeAutoScale();applyScale(sc);
-    const sl=document.getElementById('scale-slider');
-    sl.value=Math.round(sc*100);document.getElementById('scale-val').textContent=Math.round(sc*100)+'%';
+  if(ls) return Math.min(w/680,h/280,1.6);
+  const paneH=(h-70-52-32)/2;
+  if(fretIsHoriz){
+    // 横フレット縦画面: SVG(120×52px) + 指リスト縦積み
+    const svgNatH=120*100/230; // ≈52px
+    const fingerNatH=78; // 3行分の概算
+    const totalNatH=svgNatH+6+fingerNatH; // ≈136px
+    const scByH=paneH*0.85/totalNatH;
+    const scByW=(w-28)/190; // chord-info(70)+SVG(120)
+    return Math.min(scByH,scByW,2.5);
   }
+  // 縦フレット縦画面: SVG自然高さ≈125.7px
+  const scByH=paneH*0.68/125.7; // ペイン高さの68%をSVGに使う
+  const scByW=(w-28)/240; // 余裕を持たせた横幅計算
+  return Math.min(scByH,scByW,2.5);
 }
+// baseScale = 自動スケール値（auto時は常に更新、manual時は切替時点で固定）
+// sliderMult = スライダーによる相対倍率（50〜300%、デフォルト100）
+let baseScale = 1.0;
+let sliderMult = 100; // %
+
+function applyScale(sc){ document.documentElement.style.setProperty('--sc', sc); }
+
+function updateScaleUI(){
+  const eff = baseScale * sliderMult / 100;
+  applyScale(eff);
+  const sl = document.getElementById('scale-slider');
+  sl.value = sliderMult;
+  document.getElementById('scale-val').textContent = sliderMult + '%';
+}
+
+function setAutoScale(on){
+  autoScale = on;
+  document.getElementById('auto-btn').classList.toggle('active', on);
+  document.getElementById('auto-info').textContent = on
+    ? '自動サイズを基準に倍率を調整'
+    : '固定サイズを基準に倍率を調整';
+  if(on){ baseScale = computeAutoScale(); }
+  updateScaleUI();
+}
+
 function onScaleSlider(v){
-  if(autoScale){autoScale=false;document.getElementById('auto-btn').classList.remove('active');document.getElementById('auto-info').textContent='スライダーで手動調整中';}
-  applyScale(parseInt(v)/100);
-  document.getElementById('scale-val').textContent=v+'%';
+  sliderMult = parseInt(v);
+  // スライダーを触ったら自動スケールのベースは維持したまま倍率だけ変える
+  updateScaleUI();
 }
-const ro=new ResizeObserver(()=>{
-  if(!autoScale)return;
-  const sc=computeAutoScale();
-  applyScale(sc);
-  document.getElementById('scale-slider').value=Math.round(sc*100);
-  document.getElementById('scale-val').textContent=Math.round(sc*100)+'%';
+
+const ro = new ResizeObserver(() => {
+  if(!autoScale) return;
+  baseScale = computeAutoScale();
+  updateScaleUI();
 });
 ro.observe(document.documentElement);
 
@@ -702,6 +803,7 @@ function setFretOrient(horiz){
   document.body.classList.toggle('horiz-fret',horiz);
   document.getElementById('fret-vert').classList.toggle('active',!horiz);
   document.getElementById('fret-horiz').classList.toggle('active',horiz);
+  if(autoScale){ baseScale=computeAutoScale(); updateScaleUI(); }
   render(deck[idx]);
 }
 function drawFingers(c){
@@ -827,8 +929,222 @@ function resetTimer(){
   if(v){clearIv();timerEl=0;document.getElementById('timer-fill').style.width='100%';startTimer();}
 }
 
+/* ── レイアウトエディタ ── */
+const LE_KEY = 'guitar-custom-layout';
+let customLayouts = { portrait: null, landscape: null };
+let leOrient = 'portrait';
+let leDragState = null;
+
+function leLayoutKey(){ return LE_KEY + (currentProfile ? '-' + currentProfile : ''); }
+
+function loadCustomLayouts(){
+  try { customLayouts = JSON.parse(localStorage.getItem(leLayoutKey()) || 'null') || { portrait: null, landscape: null }; } catch(e){ customLayouts = { portrait: null, landscape: null }; }
+  applyCustomLayouts();
+  updateLeResetBtn();
+}
+
+function saveCustomLayout(){
+  const canvas = document.getElementById('le-canvas');
+  const cw = canvas.offsetWidth, ch = canvas.offsetHeight;
+  const layout = {};
+  canvas.querySelectorAll('.le-block').forEach(b => {
+    layout[b.dataset.block] = {
+      x: parseFloat(b.style.left)   / cw,
+      y: parseFloat(b.style.top)    / ch,
+      w: parseFloat(b.style.width)  / cw,
+      h: parseFloat(b.style.height) / ch,
+    };
+  });
+  customLayouts[leOrient] = layout;
+  localStorage.setItem(leLayoutKey(), JSON.stringify(customLayouts));
+  applyCustomLayouts();
+  updateLeResetBtn();
+  closeLayoutEditor();
+}
+
+function resetCustomLayout(){
+  customLayouts = { portrait: null, landscape: null };
+  localStorage.removeItem(leLayoutKey());
+  applyCustomLayouts();
+  updateLeResetBtn();
+}
+
+// 現在編集中の向きだけリセットしてエディタに反映
+function leResetCurrent(){
+  customLayouts[leOrient] = null;
+  leInitCanvas();
+}
+
+function updateLeResetBtn(){
+  const hasAny = customLayouts.portrait || customLayouts.landscape;
+  const btn = document.getElementById('le-reset-btn');
+  if(btn) btn.style.display = hasAny ? '' : 'none';
+}
+
+// paneEl の子を layout に従って絶対配置する
+function applyLayoutToPane(pane, layout, isCur){
+  if(!layout){ pane.classList.remove('custom-layout'); return; }
+  pane.classList.add('custom-layout');
+  const pw = pane.offsetWidth, ph = pane.offsetHeight;
+  const elMap = isCur
+    ? { ci: pane.querySelector('[data-le="chordInfo"]'), fret: pane.querySelector('[data-le="fret"]'), fingers: pane.querySelector('[data-le="fingers"]') }
+    : { ci: pane.querySelector('.next-chord-info'),      fret: pane.querySelector('.fret-next'),       fingers: pane.querySelector('.next-finger-list') };
+  Object.entries(layout).forEach(([key, v]) => {
+    const el = elMap[key]; if(!el) return;
+    el.style.left   = (v.x * pw) + 'px';
+    el.style.top    = (v.y * ph) + 'px';
+    el.style.width  = (v.w * pw) + 'px';
+    el.style.height = (v.h * ph) + 'px';
+  });
+}
+
+function applyCustomLayouts(){
+  const isP = window.innerHeight > window.innerWidth;
+  const layout = isP ? customLayouts.portrait : customLayouts.landscape;
+  applyLayoutToPane(document.getElementById('chord-pane-cur'), layout, true);
+  applyLayoutToPane(document.getElementById('next-pane'),      layout, false);
+}
+
+// デフォルト比率（エディタ初期配置用）
+const LE_DEFAULTS = {
+  portrait: {
+    ci:      { x:0.03, y:0.02, w:0.94, h:0.16 },
+    fret:    { x:0.02, y:0.20, w:0.45, h:0.58 },
+    fingers: { x:0.50, y:0.20, w:0.48, h:0.58 },
+  },
+  landscape: {
+    ci:      { x:0.02, y:0.08, w:0.26, h:0.84 },
+    fret:    { x:0.30, y:0.04, w:0.24, h:0.92 },
+    fingers: { x:0.56, y:0.04, w:0.42, h:0.92 },
+  },
+};
+
+function openLayoutEditor(){
+  toggleSettings();
+  leOrient = window.innerHeight > window.innerWidth ? 'portrait' : 'landscape';
+  document.getElementById('le-overlay').classList.add('open');
+  // requestAnimationFrame で DOM が確定してからキャンバスを初期化
+  requestAnimationFrame(() => leSetOrient(leOrient));
+}
+
+function closeLayoutEditor(){
+  document.getElementById('le-overlay').classList.remove('open');
+}
+
+function leSetOrient(or){
+  leOrient = or;
+  document.getElementById('le-or-p').classList.toggle('active', or === 'portrait');
+  document.getElementById('le-or-l').classList.toggle('active', or === 'landscape');
+  leInitCanvas();
+}
+
+function leInitCanvas(){
+  const wrap   = document.getElementById('le-canvas-wrap');
+  const canvas = document.getElementById('le-canvas');
+  const isP    = leOrient === 'portrait';
+  // wrap の実サイズを取得
+  const wW = wrap.clientWidth  - 16;
+  const wH = wrap.clientHeight - 16;
+
+  let cw, ch;
+  if(isP){
+    // 縦画面を表すフレーム：スマホ比率 (9:19.5)
+    ch = wH;
+    cw = ch * (9/19.5);
+    if(cw > wW){ cw = wW; ch = cw * (19.5/9); }
+  } else {
+    // 横画面：利用可能領域をほぼすべて使う
+    cw = wW;
+    ch = wH;
+    // ヘッダー＋フッターを除いた実際のコードペインの縦横比に近づける
+    const approxPaneH = window.innerHeight - 60 - 52; // header + footer
+    const approxPaneW = window.innerWidth / 2;
+    const targetRatio = approxPaneW / approxPaneH;
+    if(cw / ch > targetRatio){ cw = ch * targetRatio; }
+    else { ch = cw / targetRatio; }
+  }
+  canvas.style.width  = Math.round(cw) + 'px';
+  canvas.style.height = Math.round(ch) + 'px';
+
+  const saved = customLayouts[leOrient];
+  const defs  = LE_DEFAULTS[leOrient];
+  canvas.querySelectorAll('.le-block').forEach(b => {
+    const key = b.dataset.block;
+    const v = (saved && saved[key]) ? saved[key] : defs[key];
+    b.style.left   = Math.round(v.x * cw) + 'px';
+    b.style.top    = Math.round(v.y * ch) + 'px';
+    b.style.width  = Math.round(v.w * cw) + 'px';
+    b.style.height = Math.round(v.h * ch) + 'px';
+  });
+}
+
+// ドラッグ＋8方向リサイズ
+(function setupLeDrag(){
+  function pt(e){ const t = e.touches ? e.touches[0] : e; return { x: t.clientX, y: t.clientY }; }
+
+  function onStart(e){
+    const rh    = e.target.closest('.le-rh');
+    const block = e.target.closest('.le-block');
+    if(!block) return;
+    e.preventDefault();
+    const canvas = document.getElementById('le-canvas');
+    const p = pt(e);
+    block.classList.add('dragging');
+    leDragState = {
+      block, canvas,
+      dir: rh ? rh.dataset.dir : null,
+      sx: p.x, sy: p.y,
+      ol: parseFloat(block.style.left),  ot: parseFloat(block.style.top),
+      ow: parseFloat(block.style.width), oh: parseFloat(block.style.height),
+    };
+  }
+
+  function onMove(e){
+    if(!leDragState) return;
+    e.preventDefault();
+    const { block, canvas, dir, sx, sy, ol, ot, ow, oh } = leDragState;
+    const p  = pt(e);
+    const dx = p.x - sx, dy = p.y - sy;
+    const cw = canvas.offsetWidth, ch = canvas.offsetHeight;
+    const MIN_W = 50, MIN_H = 36;
+
+    if(!dir){
+      // 移動
+      block.style.left = Math.max(0, Math.min(cw - ow, ol + dx)) + 'px';
+      block.style.top  = Math.max(0, Math.min(ch - oh, ot + dy)) + 'px';
+    } else {
+      // リサイズ
+      let l=ol, t=ot, w=ow, h=oh;
+      if(dir.includes('e')){ w = Math.max(MIN_W, ow + dx); }
+      if(dir.includes('s')){ h = Math.max(MIN_H, oh + dy); }
+      if(dir.includes('w')){ const nw=Math.max(MIN_W, ow-dx); l=ol+(ow-nw); w=nw; }
+      if(dir.includes('n')){ const nh=Math.max(MIN_H, oh-dy); t=ot+(oh-nh); h=nh; }
+      block.style.left   = Math.max(0, l) + 'px';
+      block.style.top    = Math.max(0, t) + 'px';
+      block.style.width  = Math.min(cw - Math.max(0,l), w) + 'px';
+      block.style.height = Math.min(ch - Math.max(0,t), h) + 'px';
+    }
+  }
+
+  function onEnd(){
+    if(leDragState) leDragState.block.classList.remove('dragging');
+    leDragState = null;
+  }
+
+  document.addEventListener('mousedown',  onStart);
+  document.addEventListener('mousemove',  onMove);
+  document.addEventListener('mouseup',    onEnd);
+  document.addEventListener('touchstart', onStart, { passive: false });
+  document.addEventListener('touchmove',  onMove,  { passive: false });
+  document.addEventListener('touchend',   onEnd);
+})();
+
+window.addEventListener('resize', () => { applyCustomLayouts(); });
+
 /* ── 初期化 ── */
-const sl=document.getElementById('scale-slider');
+// 初期スケール設定
+baseScale = computeAutoScale();
+updateScaleUI();
 buildChordGrid();
 buildDots(); buildBarPips();
 
@@ -893,6 +1209,7 @@ function loadProfile(name){
   document.getElementById('profile-chip').textContent = '👤 '+name;
   closeProfileModal();
   buildRecordView();
+  loadCustomLayouts();
 }
 function saveStatus(){ if(currentProfile) localStorage.setItem(profileKey(currentProfile), JSON.stringify(chordStatus)); }
 function addProfile(){
@@ -932,7 +1249,7 @@ render(deck[0]);
 
 // 前回プロフィールを復元、なければ選択画面を表示
 const _last = localStorage.getItem(LS_CURRENT);
-if(_last) loadProfile(_last); else openProfileModal();
+if(_last) loadProfile(_last); else { openProfileModal(); loadCustomLayouts(); }
 </script>
 </body>
 </html>
