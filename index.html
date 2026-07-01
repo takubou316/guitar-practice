@@ -1083,6 +1083,8 @@ function leInitCanvas(){
   function pt(e){ const t = e.touches ? e.touches[0] : e; return { x: t.clientX, y: t.clientY }; }
 
   function onStart(e){
+    // 2本指以上はピンチに任せてドラッグは無視
+    if(e.touches && e.touches.length > 1){ if(leDragState){ leDragState.block.classList.remove('dragging'); leDragState=null; } return; }
     const rh    = e.target.closest('.le-rh');
     const block = e.target.closest('.le-block');
     if(!block) return;
@@ -1140,6 +1142,97 @@ function leInitCanvas(){
 })();
 
 window.addEventListener('resize', () => { applyCustomLayouts(); });
+
+/* ── ピンチズーム（通常画面 + レイアウトエディタ） ── */
+(function setupPinch(){
+  let pinchActive = false;
+  let pinchStartDist = 0;
+  // 通常画面用
+  let pinchStartMult = 100;
+  // エディタ用
+  let pinchBlock = null;
+  let pinchBlockStartW = 0;
+  let pinchBlockStartH = 0;
+
+  function touchDist(touches){
+    const dx = touches[0].clientX - touches[1].clientX;
+    const dy = touches[0].clientY - touches[1].clientY;
+    return Math.sqrt(dx*dx + dy*dy);
+  }
+
+  function isEditorOpen(){
+    const ov = document.getElementById('le-overlay');
+    return ov && ov.classList.contains('open');
+  }
+
+  // 指の座標からブロックを探す
+  function blockAtPoint(x, y){
+    const el = document.elementFromPoint(x, y);
+    return el ? el.closest('.le-block') : null;
+  }
+
+  document.addEventListener('touchstart', function(e){
+    if(e.touches.length !== 2){ pinchActive = false; pinchBlock = null; return; }
+    e.preventDefault();
+    pinchActive = true;
+    pinchStartDist = touchDist(e.touches);
+
+    if(isEditorOpen()){
+      // どちらかの指の下にあるブロックを対象にする
+      const b = blockAtPoint(e.touches[0].clientX, e.touches[0].clientY)
+             || blockAtPoint(e.touches[1].clientX, e.touches[1].clientY);
+      pinchBlock = b;
+      if(b){
+        pinchBlockStartW = parseFloat(b.style.width)  || b.offsetWidth;
+        pinchBlockStartH = parseFloat(b.style.height) || b.offsetHeight;
+      }
+    } else {
+      pinchBlock = null;
+      pinchStartMult = sliderMult;
+    }
+  }, { passive: false });
+
+  document.addEventListener('touchmove', function(e){
+    if(!pinchActive || e.touches.length !== 2) return;
+    e.preventDefault();
+    const d = touchDist(e.touches);
+    if(pinchStartDist < 1) return;
+    // 変化量を0.5倍に緩和（1から遠いほど半分のスピードで変化）
+    const rawRatio = d / pinchStartDist;
+    const ratio = 1 + (rawRatio - 1) * 0.5;
+
+    if(isEditorOpen()){
+      if(!pinchBlock) return;
+      const canvas = document.getElementById('le-canvas');
+      const cr = canvas.getBoundingClientRect();
+      const MIN_W = 50, MIN_H = 36;
+      const newW = Math.max(MIN_W, Math.min(canvas.offsetWidth,  pinchBlockStartW * ratio));
+      const newH = Math.max(MIN_H, Math.min(canvas.offsetHeight, pinchBlockStartH * ratio));
+      // 2本指の中心をキャンバス座標に変換
+      const cx = (e.touches[0].clientX + e.touches[1].clientX) / 2 - cr.left;
+      const cy = (e.touches[0].clientY + e.touches[1].clientY) / 2 - cr.top;
+      // ブロックの中心が指の中心と一致するように位置を調整
+      const newL = Math.max(0, Math.min(canvas.offsetWidth  - newW, cx - newW / 2));
+      const newT = Math.max(0, Math.min(canvas.offsetHeight - newH, cy - newH / 2));
+      pinchBlock.style.width  = newW + 'px';
+      pinchBlock.style.height = newH + 'px';
+      pinchBlock.style.left   = newL + 'px';
+      pinchBlock.style.top    = newT + 'px';
+    } else {
+      const newMult = Math.max(50, Math.min(300, pinchStartMult * ratio));
+      sliderMult = Math.round(newMult / 5) * 5;
+      updateScaleUI();
+    }
+  }, { passive: false });
+
+  document.addEventListener('touchend', function(e){
+    if(e.touches.length < 2){ pinchActive = false; pinchBlock = null; }
+  }, { passive: true });
+
+  document.addEventListener('touchcancel', function(){
+    pinchActive = false; pinchBlock = null;
+  }, { passive: true });
+})();
 
 /* ── 初期化 ── */
 // 初期スケール設定
