@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -File \"C:\\Users\\takub\\OneDrive\\ドキュメント\\takutolibrary\\guitar-practice\\.claude\\hooks\\auto-commit.ps1\"",
+            "timeout": 30,
+            "statusMessage": "Auto-committing change..."
+          }
+        ]
+      }
+    ]
+  }
+}
