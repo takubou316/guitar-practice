@@ -25,3 +25,7 @@ This is a single-file vanilla JS/HTML guitar chord practice app with no build st
 - **Layout**: CSS custom properties in `:root` drive sizing. Portrait vs landscape layouts are handled entirely with `@media (orientation: portrait/landscape)`. The `--fscale` CSS variable (set by `setFontScale`) scales landscape text/SVG sizes.
 
 - **Finger color map** (`FC`): finger 1=green, 2=blue, 3=brown, 4=purple, B(arre)=accent orange.
+
+## Auto-commit hook
+
+`.claude/settings.json` runs `.claude/hooks/auto-commit.ps1` after every Write/Edit, committing that file's change immediately (`auto: update <filename>`) so history stays fine-grained and easy to review or revert.
