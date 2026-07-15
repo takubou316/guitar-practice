@@ -729,6 +729,7 @@ function buildChordGrid(){
 /* ── 表示サイズ ── */
 function computeAutoScale(){
   const w=window.innerWidth, h=window.innerHeight, ls=w>h;
+  if(w<50||h<50) return baseScale||1;
   if(ls) return Math.min(w/680,h/280,1.6);
   const paneH=(h-70-52-32)/2;
   if(fretIsHoriz){
@@ -782,6 +783,17 @@ const ro = new ResizeObserver(() => {
   updateScaleUI();
 });
 ro.observe(document.documentElement);
+
+// iOS向き変更後はinnerWidth/Heightの確定に時間がかかるため遅延更新
+window.addEventListener('orientationchange', () => {
+  if(!autoScale) return;
+  setTimeout(() => { baseScale = computeAutoScale(); updateScaleUI(); }, 350);
+});
+window.addEventListener('resize', () => {
+  if(!autoScale) return;
+  baseScale = computeAutoScale();
+  updateScaleUI();
+});
 
 /* ── ビュー・設定 ── */
 function showView(id,el){
