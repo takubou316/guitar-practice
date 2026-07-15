@@ -527,16 +527,16 @@ body.le-prev-on .le-preview-content { display:flex; flex-direction:column; align
       <div class="s-row">
         <div class="s-label">アクセント</div>
         <div style="display:flex;gap:6px;">
-          <span class="sig-btn active" id="acc-first" onclick="setAccent(false)">頭打ち</span>
-          <span class="sig-btn" id="acc-last" onclick="setAccent(true)">尻打ち</span>
+          <span class="sig-btn" id="acc-first" onclick="setAccent(false)">頭打ち</span>
+          <span class="sig-btn active" id="acc-last" onclick="setAccent(true)">尻打ち</span>
         </div>
       </div>
 
       <div class="s-row">
         <div class="s-label">フレット図の向き</div>
         <div style="display:flex;gap:6px;">
-          <span class="sig-btn active" id="fret-vert" onclick="setFretOrient(false)">縦</span>
-          <span class="sig-btn" id="fret-horiz" onclick="setFretOrient(true)">横</span>
+          <span class="sig-btn" id="fret-vert" onclick="setFretOrient(false)">縦</span>
+          <span class="sig-btn active" id="fret-horiz" onclick="setFretOrient(true)">横</span>
         </div>
       </div>
 
@@ -670,9 +670,9 @@ const FN = {1:'人',2:'中',3:'薬',4:'小','B':'B'};
 let selectedNames = new Set(ALL_CHORDS.filter(c=>c.type==='beginner').map(c=>c.name));
 let pool = [], deck = [], idx = 0, hist = [];
 let timerIv=null, timerMax=0, timerEl=0;
-let audioCtx=null, metroOn=false, bpm=80, beats=4, accentLast=false;
+let audioCtx=null, metroOn=false, bpm=80, beats=4, accentLast=true;
 let beat=0, bar=0, barsPerSwitch=2, nextT=0, schedIv=null;
-let fretIsHoriz=false, autoScale=true, appMuted=false;
+let fretIsHoriz=true, autoScale=true, appMuted=false;
 
 function shuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
 function peekNextChord(){return deck[(idx+1)%deck.length];}
