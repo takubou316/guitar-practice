@@ -800,19 +800,22 @@ ro.observe(document.documentElement);
 
 // visualViewport resize: iOS Safariでツールバー表示/非表示時に発火
 if(window.visualViewport){
-  window.visualViewport.addEventListener('resize', () => scheduleScaleUpdate(50));
+  window.visualViewport.addEventListener('resize', () => { scheduleScaleUpdate(50); applyCustomLayouts(); });
 }
 
 // orientationchange: iOS Safariはresizeより遅く確定値が来る（400ms+）。
 // resizeイベントがscaleTimerをクリアしても上書きされないよう別タイマーで複数回発火。
+// applyCustomLayouts（自由配置の再配置）もscaleと同じタイミングで再実行しないと、
+// 確定前のpaneサイズを元にした位置がそのまま残り、回転後にレイアウトが崩れたままになる。
 window.addEventListener('orientationchange', () => {
   scheduleScaleUpdate(50);
-  setTimeout(() => { if(autoScale){ baseScale=computeAutoScale(); updateScaleUI(); }}, 400);
-  setTimeout(() => { if(autoScale){ baseScale=computeAutoScale(); updateScaleUI(); }}, 700);
+  applyCustomLayouts();
+  setTimeout(() => { if(autoScale){ baseScale=computeAutoScale(); updateScaleUI(); } applyCustomLayouts(); }, 400);
+  setTimeout(() => { if(autoScale){ baseScale=computeAutoScale(); updateScaleUI(); } applyCustomLayouts(); }, 700);
 });
 
 // resize: 上記をカバーできないブラウザ向けフォールバック
-window.addEventListener('resize', () => scheduleScaleUpdate(50));
+window.addEventListener('resize', () => { scheduleScaleUpdate(50); applyCustomLayouts(); });
 
 /* ── ビュー・設定 ── */
 function showView(id,el){
@@ -1467,8 +1470,6 @@ function leCheckOverlaps(){
   document.addEventListener('touchmove',  onMove,  { passive: false });
   document.addEventListener('touchend',   onEnd);
 })();
-
-window.addEventListener('resize', () => { applyCustomLayouts(); });
 
 /* ── ピンチズーム（通常画面 + レイアウトエディタ） ── */
 (function setupPinch(){
