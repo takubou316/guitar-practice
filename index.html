@@ -728,14 +728,17 @@ function buildChordGrid(){
 
 /* ── 表示サイズ ── */
 function computeAutoScale(){
-  // visualViewport はiOS SafariでinnerWidth/Heightより正確
-  const vv=window.visualViewport;
-  const w=vv?Math.round(vv.width):window.innerWidth;
-  const h=vv?Math.round(vv.height):window.innerHeight;
+  // 横向きはlayout viewport（innerWidth/Height）を使う。
+  // visualViewportはアドレスバー分を除くためlandscapeでスケールが小さくなりすぎる。
+  const w=window.innerWidth, h=window.innerHeight;
   const ls=w>h;
   if(w<50||h<50) return baseScale||1;
   if(ls) return Math.min(w/680,h/280,1.6);
-  const paneH=(h-70-52-32)/2;
+  // 縦向きはvisualViewportでキーボード等を考慮（ない場合はinnerHeight）
+  const vv=window.visualViewport;
+  const vvH=(vv&&vv.height>50)?Math.round(vv.height):h;
+  const paneH=(vvH-70-52-32)/2;
+  if(paneH<10) return baseScale||1;
   if(fretIsHoriz){
     // 横フレット縦画面: SVG(120×52px) + 指リスト縦積み
     const svgNatH=120*100/230; // ≈52px
