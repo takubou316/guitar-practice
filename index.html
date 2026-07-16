@@ -74,10 +74,10 @@ header {
 .chord-pane { flex: 1; min-width: 0; min-height: 0; display: flex; align-items: center; gap: 8px; overflow: hidden; }
 @media (orientation: portrait) {
   /* グリッド: コード名(全幅上段) / フレット図(左下) + 指リスト(右下) */
-  .chord-pane { display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto 1fr; grid-template-areas: "ci ci" "fret fingers"; padding: 6px 14px 4px; gap: 6px; }
+  .chord-pane { display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto 1fr; grid-template-areas: "ci ci" "fret fingers"; padding: 6px 14px 4px; gap: 6px; align-items: start; }
   .chord-info  { grid-area: ci; }
   svg.fret-main { grid-area: fret; height: calc((100dvh - var(--hdr) - var(--ftr) - var(--hist)) / 2 * 0.72); width: auto; }
-  .finger-list { grid-area: fingers; min-width: 0; overflow: hidden; display: flex; flex-direction: column; justify-content: center; }
+  .finger-list { grid-area: fingers; min-width: 0; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-start; }
   .chord-name { font-size: calc(30px * var(--sc)); white-space: nowrap; line-height: 1.1; }
   .chord-full { font-size: calc(10px * var(--sc)); white-space: nowrap; margin-top: 2px; }
   .finger-head { display: none; }
@@ -87,10 +87,10 @@ header {
   .fdot { width: calc(20px * var(--sc)); height: calc(20px * var(--sc)); font-size: calc(9px * var(--sc)); }
 
   /* 次のコード: 同じグリッド構造 */
-  .next-pane { display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto 1fr; grid-template-areas: "nci nci" "nfret nfingers"; padding: 6px 14px 4px; gap: 6px; }
+  .next-pane { display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto 1fr; grid-template-areas: "nci nci" "nfret nfingers"; padding: 6px 14px 4px; gap: 6px; align-items: start; }
   .next-chord-info  { grid-area: nci; }
   svg.fret-next { grid-area: nfret; height: calc((100dvh - var(--hdr) - var(--ftr) - var(--hist)) / 2 * 0.60); width: auto; }
-  .next-finger-list { grid-area: nfingers; min-width: 0; overflow: hidden; display: flex; flex-direction: column; justify-content: center; }
+  .next-finger-list { grid-area: nfingers; min-width: 0; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-start; }
   .next-chord-name { font-size: calc(22px * var(--sc)); white-space: nowrap; }
   .next-chord-full { font-size: calc(9px * var(--sc)); white-space: nowrap; }
   .next-pane-label { font-size: calc(9px * var(--sc)); }
@@ -153,22 +153,20 @@ svg.fret-main, svg.fret-next { display: block; }
 
 /* ── Horiz fret 縦画面: SVG全幅 + 指リスト下 ── */
 @media (orientation: portrait) {
-  body.horiz-fret .chord-pane { grid-template-areas: "ci ci" "fret fret" "fingers fingers"; grid-template-columns: 1fr; grid-template-rows: auto auto 1fr; }
+  /* 1列グリッド: align-items:startで重なり防止、finger-listは1frに収まる */
+  body.horiz-fret .chord-pane { grid-template-areas: "ci" "fret" "fingers"; grid-template-columns: 1fr; grid-template-rows: auto auto 1fr; }
   body.horiz-fret svg.fret-main { height: auto; width: calc(120px * var(--sc)); }
-  body.horiz-fret .next-pane  { grid-template-areas: "nci nci" "nfret nfret" "nfingers nfingers"; grid-template-columns: 1fr; grid-template-rows: auto auto 1fr; }
+  body.horiz-fret .next-pane  { grid-template-areas: "nci" "nfret" "nfingers"; grid-template-columns: 1fr; grid-template-rows: auto auto 1fr; }
   body.horiz-fret svg.fret-next { height: auto; width: calc(105px * var(--sc)); }
 }
-/* ── Horiz fret 横画面: SVG大きめ + 指リスト横並びチップ ── */
+/* ── Horiz fret 横画面: SVGが大きく中央、指リストは非表示（フレット図内に指情報あり） ── */
 @media (orientation: landscape) {
-  body.horiz-fret .chord-pane { grid-template-columns: max-content auto 1fr; grid-template-areas: "ci fret fingers"; }
-  body.horiz-fret svg.fret-main { width: calc(210px * var(--sc)); height: auto; }
-  body.horiz-fret .finger-list { display: flex; flex-direction: row; flex-wrap: wrap; gap: calc(4px * var(--sc)); align-content: flex-start; }
-  body.horiz-fret .finger-row { border-bottom: none; padding: calc(2px * var(--sc)) calc(8px * var(--sc)) calc(2px * var(--sc)) calc(4px * var(--sc)); background: var(--surface2); border-radius: 20px; }
-  body.horiz-fret .fs { display: none; }
-  body.horiz-fret .next-pane { grid-template-columns: max-content auto 1fr; grid-template-areas: "nci nfret nfingers"; }
-  body.horiz-fret svg.fret-next { width: calc(180px * var(--sc)); height: auto; }
-  body.horiz-fret .next-finger-list { display: flex; flex-direction: row; flex-wrap: wrap; gap: calc(4px * var(--sc)); align-content: flex-start; }
-  body.horiz-fret .next-finger-row { border-bottom: none; padding: calc(2px * var(--sc)) calc(8px * var(--sc)) calc(2px * var(--sc)) calc(4px * var(--sc)); background: var(--surface2); border-radius: 20px; }
+  body.horiz-fret .chord-pane { grid-template-columns: max-content 1fr; grid-template-areas: "ci fret"; }
+  body.horiz-fret svg.fret-main { width: 100%; max-width: calc(260px * var(--sc)); height: auto; }
+  body.horiz-fret .finger-list { display: none; }
+  body.horiz-fret .next-pane { grid-template-columns: max-content 1fr; grid-template-areas: "nci nfret"; }
+  body.horiz-fret svg.fret-next { width: 100%; max-width: calc(220px * var(--sc)); height: auto; }
+  body.horiz-fret .next-finger-list { display: none; }
 }
 
 /* ── Metronome view ── */
@@ -740,12 +738,13 @@ function computeAutoScale(){
   const paneH=(vvH-70-52-32)/2;
   if(paneH<10) return baseScale||1;
   if(fretIsHoriz){
-    // 横フレット縦画面: SVG(120×52px) + 指リスト縦積み
-    const svgNatH=120*100/230; // ≈52px
-    const fingerNatH=78; // 3行分の概算
-    const totalNatH=svgNatH+6+fingerNatH; // ≈136px
-    const scByH=paneH*0.85/totalNatH;
-    const scByW=(w-28)/190; // chord-info(70)+SVG(120)
+    // 横フレット縦画面: コード名(45px) + SVG(52px) + 指リスト(90px) + ギャップ・パディング(22px)
+    const ciNatH=45;            // chord-name+full at sc=1
+    const svgNatH=120*100/230;  // ≈52px
+    const fingerNatH=90;        // 3本分 at sc=1
+    const totalNatH=ciNatH+svgNatH+fingerNatH+22; // 22=gap×2+padding
+    const scByH=paneH/totalNatH;
+    const scByW=(w-28)/190;     // chord-info(70)+SVG(120)
     return Math.min(scByH,scByW,2.5);
   }
   // 縦フレット縦画面: SVG自然高さ≈125.7px
