@@ -255,6 +255,20 @@ footer.controls-bar { height: var(--ftr); flex-shrink: 0; display: flex; align-i
 .rec-status-btn.ok { background: rgba(74,124,89,0.18); border-color: #4A7C59; color: #4A7C59; }
 .rec-status-btn.ng { background: var(--warn-bg); border-color: var(--warn-border); color: var(--accent); }
 
+/* ── 曲ビュー ── */
+#view-songs { overflow-y: auto; padding: 10px; gap: 8px; }
+.song-hint { font-size: 11px; color: var(--text3); padding: 2px 2px 6px; line-height: 1.5; }
+.song-row { background: var(--surface); border: 0.5px solid var(--border); border-radius: var(--radius); padding: 10px 12px; margin-bottom: 8px; }
+.song-row-hdr { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.song-title { font-size: 14px; font-weight: 700; display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.song-artist { font-size: 11px; font-weight: 400; color: var(--text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.song-badge { font-size: 11px; padding: 4px 10px; border-radius: 20px; border: 0.5px solid var(--border); background: var(--surface2); color: var(--text3); white-space: nowrap; flex-shrink: 0; }
+.song-badge.ok { background: rgba(74,124,89,0.18); border-color: #4A7C59; color: #4A7C59; }
+.song-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.song-chip { font-size: 11px; padding: 3px 10px; border-radius: 20px; border: 0.5px solid var(--border); background: var(--surface2); color: var(--text3); }
+.song-chip.ok { background: rgba(74,124,89,0.18); border-color: #4A7C59; color: #4A7C59; }
+.song-chip.ng { background: var(--warn-bg); border-color: var(--warn-border); color: var(--accent); }
+
 /* ── プロフィール ── */
 .profile-chip { font-size: 11px; padding: 3px 10px; border-radius: 20px; background: var(--surface2); border: 0.5px solid var(--border); color: var(--text2); cursor: pointer; white-space: nowrap; max-width: 90px; overflow: hidden; text-overflow: ellipsis; -webkit-tap-highlight-color: transparent; flex-shrink: 0; }
 .profile-chip:active { opacity: 0.7; }
@@ -380,6 +394,7 @@ body.le-prev-on .le-preview-content { display:flex; flex-direction:column; align
         <button class="tab-btn active" onclick="showView('chord',this)">コード</button>
         <button class="tab-btn" onclick="showView('metro',this)">メトロノーム</button>
         <button class="tab-btn" onclick="showView('record',this)">記録</button>
+        <button class="tab-btn" onclick="showView('songs',this)">曲</button>
       </div>
     </div>
   </header>
@@ -448,6 +463,14 @@ body.le-prev-on .le-preview-content { display:flex; flex-direction:column; align
         <div class="rec-stat"><div class="rec-stat-num" id="rec-un-count" style="color:var(--text3)">0</div><div class="rec-stat-lbl">未評価</div></div>
       </div>
       <div id="rec-list"></div>
+    </div>
+    <div class="view" id="view-songs">
+      <div class="rec-stats">
+        <div class="rec-stat"><div class="rec-stat-num ok" id="song-ok-count">0</div><div class="rec-stat-lbl">今弾ける曲</div></div>
+        <div class="rec-stat"><div class="rec-stat-num" id="song-total-count" style="color:var(--text3)">0</div><div class="rec-stat-lbl">登録曲数</div></div>
+      </div>
+      <div class="song-hint">「記録」タブで「できた」にしたコードが増えるほど、弾ける曲・あと少しで弾ける曲が増えます。</div>
+      <div id="songs-list"></div>
     </div>
   </div>
 
@@ -659,6 +682,17 @@ const ALL_CHORDS = [
   { name:"Bb",   full:"B♭メジャー",   type:"advanced",     barre:{fret:1,from:1,to:5}, startFret:0, fingers:[{f:"B",s:"1-5",fr:1,d:"人差し指（バレー）",sub:"1〜5弦1フレット"},{f:3,s:4,fr:3,d:"薬指",sub:"4弦3フレット"},{f:4,s:3,fr:3,d:"小指",sub:"3弦3フレット"},{f:2,s:2,fr:3,d:"中指",sub:"2弦3フレット"}], open:[], muted:[6] },
   { name:"F#m",  full:"F#マイナー",   type:"advanced",     barre:{fret:2,from:1,to:6}, startFret:1, fingers:[{f:"B",s:"1-6",fr:2,d:"人差し指（バレー）",sub:"全弦2フレット"},{f:3,s:5,fr:4,d:"薬指",sub:"5弦4フレット"},{f:4,s:4,fr:4,d:"小指",sub:"4弦4フレット"}], open:[], muted:[] },
   { name:"C#m",  full:"C#マイナー",   type:"advanced",     barre:{fret:4,from:1,to:5}, startFret:3, fingers:[{f:"B",s:"1-5",fr:4,d:"人差し指（バレー）",sub:"1〜5弦4フレット"},{f:3,s:4,fr:6,d:"薬指",sub:"4弦6フレット"},{f:4,s:3,fr:6,d:"小指",sub:"3弦6フレット"},{f:2,s:2,fr:5,d:"中指",sub:"2弦5フレット"}], open:[], muted:[6] },
+];
+
+// 使用コードは各曲の「初心者向け簡易コード版」を参考に、このアプリのコード一覧(ALL_CHORDS)に
+// 含まれるものだけで構成（カポ使用・分数コード等は除外し、ずれが出ないようにしている）
+const SONGS = [
+  { title:"チェリー",         artist:"スピッツ",       chords:["Am","C","Em","F","G"] },
+  { title:"小さな恋のうた",    artist:"MONGOL800",     chords:["G","Bm","C","D","Em"] },
+  { title:"栄光の架橋",        artist:"ゆず",           chords:["Am","C","D7","E7","Em","F","G"] },
+  { title:"日曜日よりの使者",  artist:"THE HIGH-LOWS", chords:["C","D","G"] },
+  { title:"Stand By Me",      artist:"Ben E. King",   chords:["C","D","Em","G"] },
+  { title:"きらきら星",        artist:"童謡",           chords:["C","D","G"] },
 ];
 
 const FC = {1:'#4A7C59',2:'#2C6087',3:'#8B4513',4:'#6B3A7D','B':'#d4813a'};
@@ -1605,6 +1639,7 @@ function cycleStatus(name) {
   else chordStatus[name] = next;
   saveStatus();
   buildRecordView();
+  buildSongsView();
 }
 
 function buildRecordView() {
@@ -1639,6 +1674,37 @@ function buildRecordView() {
   document.getElementById('rec-un-count').textContent = un;
 }
 
+/* ── 曲ビュー（記録したコードの習熟度から弾ける曲を判定） ── */
+function songChordInfo(song){
+  const need = song.chords.map(name => ({ name, status: chordStatus[name] }));
+  const missingCount = need.filter(c => c.status !== 'ok').length;
+  return { need, missingCount, playable: missingCount === 0 };
+}
+function buildSongsView(){
+  const list = document.getElementById('songs-list');
+  if(!list) return;
+  const rows = SONGS
+    .map(song => ({ song, info: songChordInfo(song) }))
+    .sort((a,b) => a.info.missingCount - b.info.missingCount || a.song.title.localeCompare(b.song.title,'ja'));
+  list.innerHTML = rows.map(({song,info}) => {
+    const chips = info.need.map(c =>
+      `<span class="song-chip ${c.status==='ok'?'ok':(c.status==='ng'?'ng':'')}">${c.name}</span>`
+    ).join('');
+    const badge = info.playable
+      ? `<span class="song-badge ok">弾ける ✓</span>`
+      : `<span class="song-badge">あと${info.missingCount}コード</span>`;
+    return `<div class="song-row">
+      <div class="song-row-hdr">
+        <div class="song-title">${song.title}<span class="song-artist">${song.artist}</span></div>
+        ${badge}
+      </div>
+      <div class="song-chips">${chips}</div>
+    </div>`;
+  }).join('');
+  document.getElementById('song-ok-count').textContent = rows.filter(r => r.info.playable).length;
+  document.getElementById('song-total-count').textContent = SONGS.length;
+}
+
 /* ── プロフィール ── */
 const LS_CURRENT = 'guitar-current-profile';
 const LS_PREFIX  = 'guitar-profile-';
@@ -1653,6 +1719,7 @@ function loadProfile(name){
   document.getElementById('profile-chip').textContent = '👤 '+name;
   closeProfileModal();
   buildRecordView();
+  buildSongsView();
   loadCustomLayouts();
 }
 function saveStatus(){ if(currentProfile) localStorage.setItem(profileKey(currentProfile), JSON.stringify(chordStatus)); }
@@ -1667,7 +1734,7 @@ function addProfile(){
 function deleteProfile(name){
   if(!confirm(`「${name}」の記録を削除しますか？`)) return;
   localStorage.removeItem(profileKey(name));
-  if(currentProfile===name){ currentProfile=null; chordStatus={}; document.getElementById('profile-chip').textContent='👤 —'; buildRecordView(); }
+  if(currentProfile===name){ currentProfile=null; chordStatus={}; document.getElementById('profile-chip').textContent='👤 —'; buildRecordView(); buildSongsView(); }
   buildProfileModal();
 }
 function buildProfileModal(){
@@ -1688,6 +1755,7 @@ function closeProfileModal(){ document.getElementById('profile-modal').classList
 document.getElementById('profile-modal').addEventListener('click',e=>{ if(e.target===document.getElementById('profile-modal')) closeProfileModal(); });
 
 buildRecordView();
+buildSongsView();
 pool=getPool(); deck=shuffle([...pool]);
 // デフォルト値をUIに反映（body クラス・ボタン状態・accentUIを初期化）
 setFretOrient(fretIsHoriz);
