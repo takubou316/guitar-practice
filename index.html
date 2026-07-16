@@ -1210,12 +1210,22 @@ function updateLeResetBtn(){
 
 // paneEl の子を layout に従って絶対配置する
 function applyLayoutToPane(pane, layout, isCur){
-  if(!layout){ pane.classList.remove('custom-layout'); return; }
-  pane.classList.add('custom-layout');
-  const pw = pane.offsetWidth, ph = pane.offsetHeight;
   const elMap = isCur
     ? { ci: pane.querySelector('[data-le="chordInfo"]'), fret: pane.querySelector('[data-le="fret"]'), fingers: pane.querySelector('[data-le="fingers"]') }
     : { ci: pane.querySelector('.next-chord-info'),      fret: pane.querySelector('.fret-next'),       fingers: pane.querySelector('.next-finger-list') };
+  if(!layout){
+    pane.classList.remove('custom-layout');
+    // 別の向きで自由配置を適用した際に書き込んだインラインstyleが残ると、
+    // !importantのない通常CSS（widthやheightの指定）より優先されてしまい、
+    // 回転で通常レイアウトに戻ってもサイズ・位置が崩れたまま残る。
+    Object.values(elMap).forEach(el => {
+      if(!el) return;
+      el.style.left = el.style.top = el.style.width = el.style.height = el.style.zIndex = '';
+    });
+    return;
+  }
+  pane.classList.add('custom-layout');
+  const pw = pane.offsetWidth, ph = pane.offsetHeight;
   Object.entries(layout).forEach(([key, v]) => {
     const el = elMap[key]; if(!el) return;
     el.style.left    = (v.x * pw) + 'px';
