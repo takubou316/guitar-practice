@@ -732,6 +732,7 @@ function computeAutoScale(){
   const vv=window.visualViewport;
   const w=vv?Math.round(vv.width):window.innerWidth;
   const h=vv?Math.round(vv.height):window.innerHeight;
+  const ls=w>h;
   if(w<50||h<50) return baseScale||1;
   if(ls) return Math.min(w/680,h/280,1.6);
   const paneH=(h-70-52-32)/2;
