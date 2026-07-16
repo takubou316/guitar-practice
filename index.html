@@ -726,22 +726,22 @@ function buildChordGrid(){
 
 /* ── 表示サイズ ── */
 function computeAutoScale(){
-  // 向き判定はmatchMediaで（window.innerW/Hはios向き変更中に遅延することがある）
-  const ls=window.matchMedia('(orientation:landscape)').matches;
-  if(ls){
-    // 横向き: viewportサイズから計算（landscapeはinner値が比較的安定）
-    const w=window.innerWidth, h=window.innerHeight;
-    if(w<50||h<50) return baseScale||1;
-    return Math.min(w/680,h/280,1.6);
-  }
-  // 縦向き: DOMのペイン高さから計算（CSS確定後に正確な値が取れる）
+  // DOMのペイン実寸から計算。ResizeObserverはCSSレイアウト確定後に発火するため
+  // window.innerW/Hよりタイミング依存がなく、iOS向き変更でも正確。
   const pane=document.getElementById('chord-pane-cur');
   if(!pane) return baseScale||1;
   const pr=pane.getBoundingClientRect();
-  const ph=pr.height, pw=pr.width;
-  if(ph<50||pw<50) return baseScale||1;
+  const pw=pr.width, ph=pr.height;
+  if(pw<50||ph<50) return baseScale||1;
+  // 向き判定もmatchMedia（CSSと同期）
+  const ls=window.matchMedia('(orientation:landscape)').matches;
+  if(ls){
+    // 横向き: pane幅×2≒viewport幅、pane高さ≒有効表示エリア高さ
+    return Math.min(pw/340, ph/113, 1.6);
+  }
+  // 縦向き
   if(fretIsHoriz){
-    // 横フレット縦画面: コード名(45px)+SVG(52px)+指リスト(90px)+ギャップ・パディング(22px)
+    // 横フレット縦画面: コード名(45)+SVG(52)+指リスト(90)+ギャップ・パディング(22)
     const scByH=ph/(45+52+90+22);
     const scByW=(pw-28)/190;
     return Math.min(scByH,scByW,2.5);
@@ -959,6 +959,10 @@ function click(t,accent){
 }
 function sched(){
   const ctx=getCtx();
+  // バックグラウンド化などでタイマーが間引かれ、nextTが大きく遅れた場合は
+  // 現在時刻から再スタート（過去のnextTのままだと負の時刻でAudioParamがエラーになり、
+  // メトロノームが無音のまま止まる／溜まった拍が一気に鳴る不具合の原因になる）
+  if(nextT<ctx.currentTime-0.5) nextT=ctx.currentTime+0.05;
   while(nextT<ctx.currentTime+0.12){
     const acc=accentLast?beat===beats-1:beat===0;
     click(nextT,acc);
@@ -1002,6 +1006,13 @@ function stopMetro(){
   unmarkSoon();updateMetroUI();updateAudioIndicator();
 }
 function toggleMetro(){metroOn?stopMetro():startMetro();}
+// 画面ロック／アプリ切り替えからの復帰時: AudioContextがブラウザにより
+// suspendedにされていることがあるため明示的にresumeし、スケジューラも再同期する
+document.addEventListener('visibilitychange', () => {
+  if(document.hidden) return;
+  if(audioCtx && audioCtx.state==='suspended') audioCtx.resume();
+  if(metroOn && audioCtx) nextT = audioCtx.currentTime + 0.05;
+});
 function updateMetroUI(){
   document.getElementById('play-icon').textContent=metroOn?'■':'▶';
   document.getElementById('play-btn').classList.toggle('playing',metroOn);
