@@ -802,8 +802,13 @@ if(window.visualViewport){
   window.visualViewport.addEventListener('resize', () => scheduleScaleUpdate(50));
 }
 
-// orientationchange: iOS Safariでは確定値が来るまで400ms程度かかる
-window.addEventListener('orientationchange', () => scheduleScaleUpdate(400));
+// orientationchange: iOS Safariはresizeより遅く確定値が来る（400ms+）。
+// resizeイベントがscaleTimerをクリアしても上書きされないよう別タイマーで複数回発火。
+window.addEventListener('orientationchange', () => {
+  scheduleScaleUpdate(50);
+  setTimeout(() => { if(autoScale){ baseScale=computeAutoScale(); updateScaleUI(); }}, 400);
+  setTimeout(() => { if(autoScale){ baseScale=computeAutoScale(); updateScaleUI(); }}, 700);
+});
 
 // resize: 上記をカバーできないブラウザ向けフォールバック
 window.addEventListener('resize', () => scheduleScaleUpdate(50));
