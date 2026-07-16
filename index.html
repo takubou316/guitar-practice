@@ -1660,6 +1660,9 @@ document.getElementById('profile-modal').addEventListener('click',e=>{ if(e.targ
 
 buildRecordView();
 pool=getPool(); deck=shuffle([...pool]);
+// デフォルト値をUIに反映（body クラス・ボタン状態・accentUIを初期化）
+setFretOrient(fretIsHoriz);
+setAccent(accentLast);
 render(deck[0]);
 
 // 前回プロフィールを復元、なければ選択画面を表示
