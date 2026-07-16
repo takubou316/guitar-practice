@@ -728,7 +728,10 @@ function buildChordGrid(){
 
 /* ── 表示サイズ ── */
 function computeAutoScale(){
-  const w=window.innerWidth, h=window.innerHeight, ls=w>h;
+  // visualViewport はiOS SafariでinnerWidth/Heightより正確
+  const vv=window.visualViewport;
+  const w=vv?Math.round(vv.width):window.innerWidth;
+  const h=vv?Math.round(vv.height):window.innerHeight;
   if(w<50||h<50) return baseScale||1;
   if(ls) return Math.min(w/680,h/280,1.6);
   const paneH=(h-70-52-32)/2;
@@ -777,23 +780,32 @@ function onScaleSlider(v){
   updateScaleUI();
 }
 
-const ro = new ResizeObserver(() => {
+// デバウンス付きスケール更新（複数イベントが重なっても1回だけ実行）
+let _scaleTimer = null;
+function scheduleScaleUpdate(delay){
   if(!autoScale) return;
-  baseScale = computeAutoScale();
-  updateScaleUI();
-});
+  clearTimeout(_scaleTimer);
+  _scaleTimer = setTimeout(() => {
+    baseScale = computeAutoScale();
+    updateScaleUI();
+    _scaleTimer = null;
+  }, delay || 50);
+}
+
+// ResizeObserver: 通常のリサイズ検知
+const ro = new ResizeObserver(() => scheduleScaleUpdate(50));
 ro.observe(document.documentElement);
 
-// iOS向き変更後はinnerWidth/Heightの確定に時間がかかるため遅延更新
-window.addEventListener('orientationchange', () => {
-  if(!autoScale) return;
-  setTimeout(() => { baseScale = computeAutoScale(); updateScaleUI(); }, 350);
-});
-window.addEventListener('resize', () => {
-  if(!autoScale) return;
-  baseScale = computeAutoScale();
-  updateScaleUI();
-});
+// visualViewport resize: iOS Safariでツールバー表示/非表示時に発火
+if(window.visualViewport){
+  window.visualViewport.addEventListener('resize', () => scheduleScaleUpdate(50));
+}
+
+// orientationchange: iOS Safariでは確定値が来るまで400ms程度かかる
+window.addEventListener('orientationchange', () => scheduleScaleUpdate(400));
+
+// resize: 上記をカバーできないブラウザ向けフォールバック
+window.addEventListener('resize', () => scheduleScaleUpdate(50));
 
 /* ── ビュー・設定 ── */
 function showView(id,el){
