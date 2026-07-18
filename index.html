@@ -534,11 +534,13 @@ body.le-prev-on .le-preview-content { display:flex; flex-direction:column; align
       <div class="s-row">
         <div class="s-label">コード選択</div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;">
+          <span class="badge" id="preset-weak" onclick="applyPreset('weak')">できてないコードだけ</span>
           <span class="badge" id="preset-beginner" onclick="applyPreset('beginner')">初心者のみ</span>
           <span class="badge" id="preset-intermediate" onclick="applyPreset('intermediate')">中級のみ</span>
           <span class="badge" id="preset-advanced" onclick="applyPreset('advanced')">上級のみ</span>
           <span class="badge" id="preset-all" onclick="applyPreset('all')">すべて</span>
         </div>
+        <div style="font-size:11px;color:var(--text3);margin:2px 0 6px;">選択したコードは次回もそのまま復元されます。「できてないコードだけ」は「記録」タブで「できた」以外のコードを一括選択します。</div>
         <div id="chord-grid"></div>
         <div id="chord-count-s" style="font-size:12px;color:var(--text2);margin-top:4px;"></div>
       </div>
@@ -744,6 +746,20 @@ function shuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random
 function peekNextChord(){return deck[(idx+1)%deck.length];}
 
 /* ── コール選択 ── */
+// 選択コードはプロフィールごとに保存し、次回起動時も同じ選択を復元する
+const SEL_KEY = 'guitar-selected-chords';
+function selectedChordsKey(){ return SEL_KEY + (currentProfile ? '-' + currentProfile : ''); }
+function saveSelectedChords(){ localStorage.setItem(selectedChordsKey(), JSON.stringify([...selectedNames])); }
+function loadSelectedChords(){
+  try {
+    const raw = localStorage.getItem(selectedChordsKey());
+    if(raw){
+      const names = JSON.parse(raw).filter(n => ALL_CHORDS.some(c=>c.name===n));
+      if(names.length>0){ selectedNames = new Set(names); return; }
+    }
+  } catch(e){}
+  selectedNames = new Set(ALL_CHORDS.filter(c=>c.type==='beginner').map(c=>c.name));
+}
 function getPool(){
   const p=ALL_CHORDS.filter(c=>selectedNames.has(c.name));
   return p.length>0?p:[ALL_CHORDS[0]];
@@ -759,13 +775,21 @@ function toggleChord(name){
   } else {
     selectedNames.add(name);
   }
+  saveSelectedChords();
   refreshPool(); buildChordGrid();
 }
 function applyPreset(lv){
   if(lv==='beginner') selectedNames=new Set(ALL_CHORDS.filter(c=>c.type==='beginner').map(c=>c.name));
   else if(lv==='intermediate') selectedNames=new Set(ALL_CHORDS.filter(c=>c.type==='intermediate').map(c=>c.name));
   else if(lv==='advanced') selectedNames=new Set(ALL_CHORDS.filter(c=>c.type==='advanced').map(c=>c.name));
+  else if(lv==='weak'){
+    // 「できた」以外（要練習＋未評価）だけを一括選択。まだ何も評価していないコードは
+    // 未評価として拾われるので、記録タブを一度も触っていなくてもとりあえず全コードが選ばれる。
+    const weak = new Set(ALL_CHORDS.filter(c => chordStatus[c.name] !== 'ok').map(c=>c.name));
+    selectedNames = weak.size>0 ? weak : new Set(ALL_CHORDS.map(c=>c.name));
+  }
   else selectedNames=new Set(ALL_CHORDS.map(c=>c.name));
+  saveSelectedChords();
   refreshPool(); buildChordGrid();
 }
 function buildChordGrid(){
@@ -1772,6 +1796,9 @@ function loadProfile(name){
   closeProfileModal();
   buildRecordView();
   buildSongsView();
+  loadSelectedChords();
+  refreshPool();
+  buildChordGrid();
   loadCustomLayouts();
 }
 function saveStatus(){ if(currentProfile) localStorage.setItem(profileKey(currentProfile), JSON.stringify(chordStatus)); }
