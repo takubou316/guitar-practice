@@ -263,6 +263,10 @@ footer.controls-bar { height: var(--ftr); flex-shrink: 0; display: flex; align-i
 .flow-lane { position: relative; flex: 1; overflow: hidden; border-radius: var(--radius); background: linear-gradient(180deg,var(--surface),var(--surface2)); border: 0.5px solid var(--border); }
 .flow-marker { position: absolute; left: 20%; top: 0; bottom: 0; width: 2px; background: var(--accent); opacity: 0.55; }
 .flow-marker::after { content: ''; position: absolute; left: -5px; top: -5px; width: 12px; height: 12px; border-radius: 50%; background: var(--accent); }
+.flow-marker.pulse { animation: flowPulse 0.18s ease-out; }
+.flow-marker.pulse-switch { animation: flowPulseSwitch 0.35s ease-out; }
+@keyframes flowPulse { 0% { opacity: 1; box-shadow: 0 0 10px 2px var(--accent); } 100% { opacity: 0.55; box-shadow: none; } }
+@keyframes flowPulseSwitch { 0% { opacity: 1; box-shadow: 0 0 24px 6px var(--accent); width: 4px; } 100% { opacity: 0.55; box-shadow: none; width: 2px; } }
 .flow-track { position: absolute; left: 20%; top: 50%; display: flex; }
 .flow-tile { width: 38vw; max-width: 220px; flex-shrink: 0; text-align: center; }
 .flow-tile-name { font-size: clamp(28px, 13vw, 72px); font-weight: 800; line-height: 1; color: var(--accent); }
@@ -498,7 +502,7 @@ body.le-prev-on .le-preview-content { display:flex; flex-direction:column; align
     </div>
     <div class="view" id="view-flow">
       <div class="flow-lane">
-        <div class="flow-marker"></div>
+        <div class="flow-marker" id="flow-marker"></div>
         <div class="flow-track" id="flow-track">
           <div class="flow-tile flow-prev"><div class="flow-tile-name" id="flow-name-prev"></div></div>
           <div class="flow-tile flow-current"><div class="flow-tile-name" id="flow-name-cur"></div></div>
@@ -1086,7 +1090,9 @@ function sched(){
     const acc=accentLast?beat===beats-1:beat===0;
     click(nextT,acc);
     const bSnap=beat,barSnap=bar,delay=Math.max(0,(nextT-ctx.currentTime)*1000);
-    setTimeout(()=>onBeatUI(bSnap,barSnap),delay);
+    // このtickでbeat/barが繰り上がった結果コード切替が起きるかを先読みし、onBeatUIに渡す（「流れる」画面のマーカーを強く光らせる判定用）
+    const willSwitch=(beat+1)%beats===0 && barsPerSwitch>0 && (bar+1)>=barsPerSwitch;
+    setTimeout(()=>onBeatUI(bSnap,barSnap,willSwitch),delay);
     beat=(beat+1)%beats;
     if(beat===0){
       bar++;
@@ -1097,11 +1103,20 @@ function sched(){
     nextT+=60/bpm;
   }
 }
-function onBeatUI(b,barIdx){
+function onBeatUI(b,barIdx,willSwitch){
   const dots=document.querySelectorAll('.bdot');
   dots.forEach((d,i)=>d.classList.toggle('on',i===b));
   setTimeout(()=>dots.forEach(d=>d.classList.remove('on')),90);
   updateBarPips(barIdx);
+  pulseFlowMarker(willSwitch);
+}
+// 「流れる」画面のマーカーを、実際に音が鳴る拍のタイミングで光らせる。切替が起きる拍だけ大きく光らせて区別する。
+function pulseFlowMarker(big){
+  const m=document.getElementById('flow-marker');
+  if(!m) return;
+  m.classList.remove('pulse','pulse-switch');
+  void m.offsetWidth;
+  m.classList.add(big?'pulse-switch':'pulse');
 }
 function updateBarPips(barIdx){
   if(barsPerSwitch===0){document.getElementById('bar-progress').innerHTML='';document.getElementById('bar-counter').textContent='';return;}
