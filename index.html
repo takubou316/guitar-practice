@@ -261,18 +261,18 @@ footer.controls-bar { height: var(--ftr); flex-shrink: 0; display: flex; align-i
 /* ── コードが流れる表示 ── */
 #view-flow { padding: 10px; gap: 8px; }
 .flow-lane { position: relative; flex: 1; overflow: hidden; border-radius: var(--radius); background: linear-gradient(180deg,var(--surface),var(--surface2)); border: 0.5px solid var(--border); }
-.flow-marker { position: absolute; left: 20%; top: 0; bottom: 0; width: 2px; background: var(--accent); opacity: 0.55; }
+/* heightはflow-staffの実寸と同じ計算式にして、マーカーの縦の長さを実際の指板の高さに合わせる */
+.flow-marker { position: absolute; left: 20%; top: 50%; transform: translateY(-50%); width: 2px; height: 27.86vw; max-height: 171.4px; background: var(--accent); opacity: 0.55; }
 .flow-marker::after { content: ''; position: absolute; left: -5px; top: -5px; width: 12px; height: 12px; border-radius: 50%; background: var(--accent); }
 .flow-marker.pulse { animation: flowPulse 0.18s ease-out; }
 .flow-marker.pulse-switch { animation: flowPulseSwitch 0.35s ease-out; }
 @keyframes flowPulse { 0% { opacity: 1; box-shadow: 0 0 10px 2px var(--accent); } 100% { opacity: 0.55; box-shadow: none; } }
 @keyframes flowPulseSwitch { 0% { opacity: 1; box-shadow: 0 0 24px 6px var(--accent); width: 4px; } 100% { opacity: 0.55; box-shadow: none; width: 2px; } }
-.flow-track { position: absolute; left: 20%; top: 50%; display: flex; }
-.flow-tile { width: 26vw; max-width: 150px; flex-shrink: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 6px; box-sizing: border-box; }
-.flow-tile-name { font-size: clamp(14px, 4.5vw, 20px); font-weight: 800; line-height: 1; color: var(--text); }
-.flow-tile-fret { width: 100%; height: auto; }
-.flow-tile:first-child { background: var(--surface2); border-radius: 10px; border: 1px solid var(--accent); }
-.flow-tile:first-child .flow-tile-name { color: var(--accent); }
+.flow-track { position: absolute; left: 20%; top: 50%; }
+.flow-staff { display: block; width: 104vw; max-width: 640px; height: auto; }
+/* heightはflow-staffの実寸(104vw、比率150/560)と同じ計算式にして、SVGと文字ラベルの縦位置を常に一致させる */
+.flow-string-labels { position: absolute; left: 4px; top: 50%; transform: translateY(-50%); width: 14px; height: 27.86vw; max-height: 171.4px; z-index: 2; }
+.flow-string-labels span { position: absolute; left: 0; font-size: 10px; color: var(--text2); transform: translateY(-50%); font-family: sans-serif; }
 .flow-hint { text-align: center; font-size: 12px; color: var(--text3); }
 .song-hint { font-size: 11px; color: var(--text3); padding: 2px 2px 6px; line-height: 1.5; }
 .song-row { background: var(--surface); border: 0.5px solid var(--border); border-radius: var(--radius); padding: 10px 12px; margin-bottom: 8px; cursor: pointer; -webkit-tap-highlight-color: transparent; user-select: none; }
@@ -505,15 +505,13 @@ body.le-prev-on .le-preview-content { display:flex; flex-direction:column; align
     </div>
     <div class="view" id="view-flow">
       <div class="flow-lane">
+        <div class="flow-string-labels" id="flow-string-labels"></div>
         <div class="flow-marker" id="flow-marker"></div>
         <div class="flow-track" id="flow-track">
-          <div class="flow-tile"><div class="flow-tile-name"></div><svg class="flow-tile-fret" viewBox="0 0 140 200"></svg></div>
-          <div class="flow-tile"><div class="flow-tile-name"></div><svg class="flow-tile-fret" viewBox="0 0 140 200"></svg></div>
-          <div class="flow-tile"><div class="flow-tile-name"></div><svg class="flow-tile-fret" viewBox="0 0 140 200"></svg></div>
-          <div class="flow-tile"><div class="flow-tile-name"></div><svg class="flow-tile-fret" viewBox="0 0 140 200"></svg></div>
+          <svg class="flow-staff" id="flow-staff" viewBox="0 0 560 150"></svg>
         </div>
       </div>
-      <div class="flow-hint" id="flow-hint">メトロノームを再生すると、コードが右から流れてきます</div>
+      <div class="flow-hint" id="flow-hint">メトロノームを再生すると、コードが右の弦の上を流れてきます</div>
     </div>
   </div>
 
@@ -937,19 +935,28 @@ if(window.visualViewport){
   window.visualViewport.addEventListener('resize', () => { scheduleScaleUpdate(50); applyCustomLayouts(); });
 }
 
+// 画面回転やリサイズの最中にAudioContextがブラウザにより一時的にsuspendedにされることがある
+// （visibilitychangeを伴わない場合もある）。メトロノーム再生中はここでも必ず復帰させ、
+// nextTも現在時刻基準に再同期しておく（visibilitychangeハンドラの復帰処理と同じ内容）。
+function resyncAudioIfNeeded(){
+  if(audioCtx && audioCtx.state==='suspended') audioCtx.resume();
+  if(metroOn && audioCtx) nextT = audioCtx.currentTime + 0.05;
+}
+
 // orientationchange: iOS Safariはresizeより遅く確定値が来る（400ms+）。
 // resizeイベントがscaleTimerをクリアしても上書きされないよう別タイマーで複数回発火。
 // applyCustomLayouts（自由配置の再配置）もscaleと同じタイミングで再実行しないと、
 // 確定前のpaneサイズを元にした位置がそのまま残り、回転後にレイアウトが崩れたままになる。
 window.addEventListener('orientationchange', () => {
+  resyncAudioIfNeeded();
   scheduleScaleUpdate(50);
   applyCustomLayouts();
-  setTimeout(() => { if(autoScale){ baseScale=computeAutoScale(); updateScaleUI(); } applyCustomLayouts(); }, 400);
-  setTimeout(() => { if(autoScale){ baseScale=computeAutoScale(); updateScaleUI(); } applyCustomLayouts(); }, 700);
+  setTimeout(() => { resyncAudioIfNeeded(); if(autoScale){ baseScale=computeAutoScale(); updateScaleUI(); } applyCustomLayouts(); }, 400);
+  setTimeout(() => { resyncAudioIfNeeded(); if(autoScale){ baseScale=computeAutoScale(); updateScaleUI(); } applyCustomLayouts(); }, 700);
 });
 
 // resize: 上記をカバーできないブラウザ向けフォールバック
-window.addEventListener('resize', () => { scheduleScaleUpdate(50); applyCustomLayouts(); });
+window.addEventListener('resize', () => { resyncAudioIfNeeded(); scheduleScaleUpdate(50); applyCustomLayouts(); });
 
 /* ── ビュー・設定 ── */
 function showView(id,el){
@@ -1168,8 +1175,7 @@ function toggleMetro(){metroOn?stopMetro():startMetro();}
 // suspendedにされていることがあるため明示的にresumeし、スケジューラも再同期する
 document.addEventListener('visibilitychange', () => {
   if(document.hidden) return;
-  if(audioCtx && audioCtx.state==='suspended') audioCtx.resume();
-  if(metroOn && audioCtx) nextT = audioCtx.currentTime + 0.05;
+  resyncAudioIfNeeded();
 });
 function updateMetroUI(){
   document.getElementById('play-icon').textContent=metroOn?'■':'▶';
@@ -1193,39 +1199,84 @@ function setAccent(last){
 }
 function onBarSelChange(){barsPerSwitch=parseInt(document.getElementById('bar-sel').value);bar=0;buildBarPips();unmarkSoon();}
 
-/* ── コードが流れる表示（現在のコード切替タイミングに同期して右→左に流す） ── */
-const FLOW_N = 4; // 現在+この先3つ、常に4枚流す
+/* ── コードが流れる表示（1本の共通フレットボードの上を、現在のコード切替タイミングに同期して右→左に流す） ── */
+const FLOW_N = 4; // 現在+この先3つ、常に4枚ぶんの運指を同じ弦の上に描く
 const FLOW_REST_OPACITY = [1, 0.65, 0.45, 0.3]; // 各スロットの静止時の濃さ（現在→未来に向けて薄く）
-// 現在＋先読み済みの次の3コード（queueは両タブ共通なのでコードタブと表示がズレない）をタイルに反映し、
-// フレット図も描き直して、アニメーションの起点時刻をリセットする。
-// render()から毎回呼ばれるので、手動送り・自動送り・初期表示のどれでも同じ経路で同期される。
-function syncFlowQueue(){
-  const track=document.getElementById('flow-track');
-  if(!track) return;
+const FLOW_SLOT_W = 140, FLOW_H = 150, FLOW_STR_TOP = 40, FLOW_STR_BOTTOM = 122, FLOW_FRETS = 4;
+const FLOW_NUT_X = 16, FLOW_RIGHT_PAD = 6;
+// 左端に固定表示する弦名（縦位置はFLOW_STR_TOP/BOTTOMと連動、スクロールでは動かない）
+function buildFlowStringLabels(){
+  const wrap=document.getElementById('flow-string-labels');
+  if(!wrap) return;
+  const labels=['e','B','G','D','A','E'];
+  const gap=(FLOW_STR_BOTTOM-FLOW_STR_TOP)/5;
+  wrap.innerHTML=labels.map((L,i)=>`<span style="top:${((FLOW_STR_TOP+i*gap)/FLOW_H*100).toFixed(1)}%">${L}</span>`).join('');
+}
+// 6本の弦を1本の帯としてFLOW_N個ぶん通しで描き、各コードの運指はそのスロット内に重ねて描く
+// （個別の小さいフレット図をタイルごとに並べるのではなく、同じ弦の上をコードが流れていく見た目にする）。
+function drawFlowStaff(){
+  const svg=document.getElementById('flow-staff');
+  if(!svg) return;
+  const totalW=FLOW_SLOT_W*FLOW_N;
+  svg.setAttribute('viewBox',`0 0 ${totalW} ${FLOW_H}`);
+  const gap=(FLOW_STR_BOTTOM-FLOW_STR_TOP)/5;
+  const strY=s=>FLOW_STR_TOP+(s-1)*gap; // s=1(高music e)が上、s=6(低E)が下
+  let h='';
+  for(let i=0;i<6;i++) h+=`<line x1="0" y1="${strY(i+1)}" x2="${totalW}" y2="${strY(i+1)}" stroke="#444" stroke-width="0.7"/>`;
   for(let k=0;k<FLOW_N;k++){
     const c = k===0 ? current : peekChord(k);
-    const tile=track.children[k];
-    if(!tile||!c) continue;
-    tile.querySelector('.flow-tile-name').textContent=c.name;
-    drawFret(c,tile.querySelector('.flow-tile-fret'));
+    if(!c) continue;
+    const slotX=k*FLOW_SLOT_W, fretX0=slotX+FLOW_NUT_X, fretX1=slotX+FLOW_SLOT_W-FLOW_RIGHT_PAD;
+    const fw=(fretX1-fretX0)/FLOW_FRETS, sf=c.startFret||0;
+    let g='';
+    if(k===0) g+=`<rect x="${slotX+2}" y="${FLOW_STR_TOP-18}" width="${FLOW_SLOT_W-4}" height="${FLOW_STR_BOTTOM-FLOW_STR_TOP+26}" rx="8" fill="none" stroke="${FC['B']}" stroke-width="1.5"/>`;
+    g+=`<text x="${slotX+6}" y="${FLOW_STR_TOP-7}" font-size="15" font-weight="800" fill="${k===0?FC['B']:'#ccc'}" font-family="sans-serif">${c.name}</text>`;
+    for(let f=1;f<FLOW_FRETS;f++){ const x=fretX0+f*fw; g+=`<line x1="${x}" y1="${FLOW_STR_TOP}" x2="${x}" y2="${FLOW_STR_BOTTOM}" stroke="#333" stroke-width="0.5"/>`; }
+    if(sf>0) g+=`<text x="${fretX0-3}" y="${FLOW_STR_TOP-2}" text-anchor="end" font-size="8" fill="#666" font-family="sans-serif">${sf}fr</text>`;
+    else g+=`<rect x="${fretX0-3}" y="${FLOW_STR_TOP-3}" width="3" height="${FLOW_STR_BOTTOM-FLOW_STR_TOP+6}" fill="#e0e0e0"/>`;
+    for(let s=1;s<=6;s++){
+      const y=strY(s);
+      if(c.muted&&c.muted.includes(s)) g+=`<text x="${slotX+FLOW_NUT_X-9}" y="${y+3}" text-anchor="middle" font-size="9" fill="#666" font-family="sans-serif">×</text>`;
+      else if(c.open&&c.open.includes(s)) g+=`<circle cx="${slotX+FLOW_NUT_X-9}" cy="${y}" r="3.5" fill="none" stroke="#888" stroke-width="1"/>`;
+    }
+    if(c.barre){
+      const by1=strY(Math.min(c.barre.from,c.barre.to)), by2=strY(Math.max(c.barre.from,c.barre.to));
+      const bx=fretX0+(c.barre.fret-sf-0.5)*fw;
+      g+=`<rect x="${bx-6}" y="${by1-6}" width="12" height="${by2-by1+12}" rx="6" fill="${FC['B']}"/>`;
+    }
+    c.fingers.forEach(fi=>{
+      if(fi.f==='B') return;
+      const x=fretX0+(fi.fr-sf-0.5)*fw, y=strY(fi.s);
+      g+=`<circle cx="${x}" cy="${y}" r="8" fill="${FC[fi.f]||'#666'}"/>`;
+      g+=`<text x="${x}" y="${y+3}" text-anchor="middle" font-size="8" font-weight="bold" fill="#fff" font-family="sans-serif">${FN[fi.f]}</text>`;
+    });
+    h+=`<g class="flow-slot">${g}</g>`;
   }
+  svg.innerHTML=h;
+}
+// 現在＋先読み済みの次の3コード（queueは両タブ共通なのでコードタブと表示がズレない）で流れる帯を描き直し、
+// アニメーションの起点時刻をリセットする。render()から毎回呼ばれるので、手動送り・自動送り・初期表示のどれでも同じ経路で同期される。
+function syncFlowQueue(){
+  drawFlowStaff();
   flowStartAt=performance.now();
 }
 // 小節ベースの自動切替が有効な間だけ、1コードぶんの表示時間(ミリ秒)を返す。手動送りのみの設定では0(=流さず静止)。
 function flowDurationMs(){ return (metroOn && barsPerSwitch>0) ? barsPerSwitch*beats*60000/bpm : 0; }
 function layoutFlow(){
+  const svg=document.getElementById('flow-staff');
   const track=document.getElementById('flow-track');
-  if(!track||!track.children[0]) return;
-  const w=track.children[0].offsetWidth;
+  if(!svg||!track) return;
+  const w=svg.getBoundingClientRect().width/FLOW_N;
   const dur=flowDurationMs();
   const frac=dur>0 ? Math.min(1,(performance.now()-flowStartAt)/dur) : 0;
   track.style.transform=`translate(${-(0.5+frac)*w}px,-50%)`;
-  // マーカーに近いタイルほど濃く見えるよう、位置(frac)に合わせて各タイルの不透明度を連続的に切り替える
-  for(let k=0;k<track.children.length;k++){
+  // マーカーに近いスロットほど濃く見えるよう、位置(frac)に合わせて各コードの不透明度を連続的に切り替える
+  const slots=svg.querySelectorAll('.flow-slot');
+  slots.forEach((g,k)=>{
     const from=FLOW_REST_OPACITY[k]??0.3;
     const to=k===0 ? FLOW_REST_OPACITY[FLOW_REST_OPACITY.length-1] : (FLOW_REST_OPACITY[k-1]??1);
-    track.children[k].style.opacity=from+frac*(to-from);
-  }
+    g.style.opacity=from+frac*(to-from);
+  });
 }
 (function flowLoop(){
   if(document.getElementById('view-flow')?.classList.contains('active')) layoutFlow();
@@ -1785,6 +1836,7 @@ baseScale = computeAutoScale();
 updateScaleUI();
 buildChordGrid();
 buildDots(); buildBarPips();
+buildFlowStringLabels();
 
 /* ── 記録 ── */
 let chordStatus = {};
