@@ -38,6 +38,7 @@
 - **iOSの向き変更タイミング**: `orientationchange`は`resize`より確定が遅れる（400ms以上）ことがあるため、`applyCustomLayouts`とスケール再計算を**50ms/400ms/700msの3段階**で重ねて呼ぶことで、早すぎる/遅すぎるどちらのケースにも対応している。`resize`と`visualViewport`のresizeもフォールバックとして併用。
 - **メトロノームの無音化バグ対策**: 画面ロックやアプリ切り替えでタイマーが間引かれ`nextT`が現在時刻より大きく遅れると、負の時刻でAudioParamがエラーになり無音のまま止まる、または溜まった拍が一気に鳴る不具合があった。`nextT`が`ctx.currentTime`より0.5秒以上過去なら現在時刻から再スタートするガードで対処（`sched()`冒頭）。`visibilitychange`でも`AudioContext`の`resume()`と`nextT`再同期を行う。
 - **プロフィールキーの命名規則**: 選択コード・記録・カスタムレイアウトはいずれも`ベースキー + '-' + currentProfile`という同じ命名規則でlocalStorageに保存されている。新しい「プロフィール単位で持たせたい設定」を追加するときはこのパターンを踏襲する。
+- **「流れる」タブのアニメーションはrequestAnimationFrame単独に依存させない**: `layoutFlow()`（位置・不透明度の更新）は元は`flowLoop()`のrAF再帰だけで駆動していたが、rAFは`document.hidden`が真になる（タブが非アクティブ扱いになる等）と一切発火しなくなり、その間ずっと表示が固まる回帰を確認した。メトロノーム動作中は`sched()`が`setInterval(20ms)`で確実に回っているため、`sched()`の先頭でも`layoutFlow()`を呼んで二重に駆動することで、rAFが間引かれる環境でも固まらないようにしている（rAFが正常な環境では単に同じ内容を2回描くだけで害はない）。同様の理由で、マーカーの点滅(`pulseFlowMarker`)のアニメーション再始動も`requestAnimationFrame`で1フレーム遅らせる方式は同じ理由で機能しないことがあるため使わず、同期的な`void el.offsetWidth`による強制リフロー方式のままにしている。
 
 ## 自動コミットHook（takutolibraryルートに移設済み）
 

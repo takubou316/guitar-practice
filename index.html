@@ -1099,6 +1099,10 @@ function click(t,accent){
 }
 function sched(){
   const ctx=getCtx();
+  // 「流れる」画面のアニメーションは本来requestAnimationFrameで駆動しているが、rAFはタブが
+  // 非アクティブ扱いになると発火しなくなることがある。setIntervalで20ms間隔で確実に回っている
+  // このsched()からも呼んでおくことで、rAFが間引かれる環境でも表示が固まらないようにする保険。
+  if(document.getElementById('view-flow')?.classList.contains('active')) layoutFlow();
   // バックグラウンド化などでタイマーが間引かれ、nextTが大きく遅れた場合は
   // 現在時刻から再スタート（過去のnextTのままだと負の時刻でAudioParamがエラーになり、
   // メトロノームが無音のまま止まる／溜まった拍が一気に鳴る不具合の原因になる）
@@ -1128,6 +1132,9 @@ function onBeatUI(b,barIdx,willSwitch){
   pulseFlowMarker(willSwitch);
 }
 // 「流れる」画面のマーカーを、実際に音が鳴る拍のタイミングで光らせる。切替が起きる拍だけ大きく光らせて区別する。
+// remove→rAFで1フレーム後にadd、という「強制リフローを避ける」版を試したが、rAFはタブが非アクティブ/裏に
+// 回ったブラウザでは一切発火しなくなることがあり、その場合マーカーが永久に光らなくなる回帰を確認したため、
+// 同期的なvoid offsetWidthでの強制リフロー方式に戻す（rAFの発火有無に依存しない確実な方法）。
 function pulseFlowMarker(big){
   const m=document.getElementById('flow-marker');
   if(!m) return;
