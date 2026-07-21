@@ -668,14 +668,14 @@ body.le-prev-on .le-preview-content { display:flex; flex-direction:column; align
 /* ── コードデータ（26種類）── */
 const ALL_CHORDS = [
   // 初心者
-  { name:"Am",   full:"Aマイナー",    type:"beginner",     barre:null, startFret:0, fingers:[{f:2,s:4,fr:2,d:"中指",sub:"4弦2フレット"},{f:3,s:3,fr:2,d:"薬指",sub:"3弦2フレット"},{f:1,s:2,fr:1,d:"人差し指",sub:"2弦1フレット"}], open:[1,6], muted:[] },
+  { name:"Am",   full:"Aマイナー",    type:"beginner",     barre:null, startFret:0, fingers:[{f:2,s:4,fr:2,d:"中指",sub:"4弦2フレット"},{f:3,s:3,fr:2,d:"薬指",sub:"3弦2フレット"},{f:1,s:2,fr:1,d:"人差し指",sub:"2弦1フレット"}], open:[1,5,6], muted:[] },
   { name:"A",    full:"Aメジャー",    type:"beginner",     barre:null, startFret:0, fingers:[{f:1,s:4,fr:2,d:"人差し指",sub:"4弦2フレット"},{f:2,s:3,fr:2,d:"中指",sub:"3弦2フレット"},{f:3,s:2,fr:2,d:"薬指",sub:"2弦2フレット"}], open:[1,5], muted:[6] },
   { name:"Em",   full:"Eマイナー",    type:"beginner",     barre:null, startFret:0, fingers:[{f:2,s:5,fr:2,d:"中指",sub:"5弦2フレット"},{f:3,s:4,fr:2,d:"薬指",sub:"4弦2フレット"}], open:[1,2,3,6], muted:[] },
   { name:"E",    full:"Eメジャー",    type:"beginner",     barre:null, startFret:0, fingers:[{f:2,s:5,fr:2,d:"中指",sub:"5弦2フレット"},{f:3,s:4,fr:2,d:"薬指",sub:"4弦2フレット"},{f:1,s:3,fr:1,d:"人差し指",sub:"3弦1フレット"}], open:[1,2,6], muted:[] },
   { name:"G",    full:"Gメジャー",    type:"beginner",     barre:null, startFret:0, fingers:[{f:2,s:6,fr:3,d:"中指",sub:"6弦3フレット"},{f:1,s:5,fr:2,d:"人差し指",sub:"5弦2フレット"},{f:3,s:1,fr:3,d:"薬指",sub:"1弦3フレット"}], open:[2,3,4], muted:[] },
   { name:"C",    full:"Cメジャー",    type:"beginner",     barre:null, startFret:0, fingers:[{f:3,s:5,fr:3,d:"薬指",sub:"5弦3フレット"},{f:2,s:4,fr:2,d:"中指",sub:"4弦2フレット"},{f:1,s:2,fr:1,d:"人差し指",sub:"2弦1フレット"}], open:[1,3], muted:[6] },
   { name:"D",    full:"Dメジャー",    type:"beginner",     barre:null, startFret:0, fingers:[{f:1,s:3,fr:2,d:"人差し指",sub:"3弦2フレット"},{f:3,s:2,fr:3,d:"薬指",sub:"2弦3フレット"},{f:2,s:1,fr:2,d:"中指",sub:"1弦2フレット"}], open:[4], muted:[5,6] },
-  { name:"G7",   full:"Gセブンス",    type:"beginner",     barre:null, startFret:0, fingers:[{f:2,s:6,fr:3,d:"中指",sub:"6弦3フレット"},{f:1,s:5,fr:2,d:"人差し指",sub:"5弦2フレット"},{f:3,s:1,fr:1,d:"薬指",sub:"1弦1フレット"}], open:[2,3,4], muted:[] },
+  { name:"G7",   full:"Gセブンス",    type:"beginner",     barre:null, startFret:0, fingers:[{f:3,s:6,fr:3,d:"薬指",sub:"6弦3フレット"},{f:2,s:5,fr:2,d:"中指",sub:"5弦2フレット"},{f:1,s:1,fr:1,d:"人差し指",sub:"1弦1フレット"}], open:[2,3,4], muted:[] },
   { name:"E7",   full:"Eセブンス",    type:"beginner",     barre:null, startFret:0, fingers:[{f:2,s:5,fr:2,d:"中指",sub:"5弦2フレット"},{f:1,s:3,fr:1,d:"人差し指",sub:"3弦1フレット"}], open:[1,2,4,6], muted:[] },
   { name:"A7",   full:"Aセブンス",    type:"beginner",     barre:null, startFret:0, fingers:[{f:1,s:4,fr:2,d:"人差し指",sub:"4弦2フレット"},{f:3,s:2,fr:2,d:"薬指",sub:"2弦2フレット"}], open:[1,3,5], muted:[6] },
   { name:"Em7",  full:"Eマイナー7",   type:"beginner",     barre:null, startFret:0, fingers:[{f:1,s:5,fr:2,d:"人差し指",sub:"5弦2フレット"},{f:2,s:4,fr:2,d:"中指",sub:"4弦2フレット"}], open:[1,2,3,6], muted:[] },
