@@ -473,6 +473,7 @@ body.le-prev-on .le-preview-content { display:flex; flex-direction:column; align
         <div class="rec-stat"><div class="rec-stat-num ok" id="rec-ok-count">0</div><div class="rec-stat-lbl">できた</div></div>
         <div class="rec-stat"><div class="rec-stat-num ng" id="rec-ng-count">0</div><div class="rec-stat-lbl">要練習</div></div>
         <div class="rec-stat"><div class="rec-stat-num" id="rec-un-count" style="color:var(--text3)">0</div><div class="rec-stat-lbl">未評価</div></div>
+        <div class="rec-stat"><div class="rec-stat-num" id="rec-streak-count" style="color:#e08a3c">0</div><div class="rec-stat-lbl">🔥 連続日数</div></div>
       </div>
       <div id="rec-list"></div>
     </div>
@@ -1730,6 +1731,7 @@ function buildRecordView() {
   document.getElementById('rec-ok-count').textContent = ok;
   document.getElementById('rec-ng-count').textContent = ng;
   document.getElementById('rec-un-count').textContent = un;
+  document.getElementById('rec-streak-count').textContent = getStreak();
 }
 
 /* ── 曲ビュー（記録したコードの習熟度から弾ける曲を判定） ── */
@@ -1794,12 +1796,36 @@ function loadProfile(name){
   try { chordStatus = JSON.parse(localStorage.getItem(profileKey(name))||'{}'); } catch(e){ chordStatus={}; }
   document.getElementById('profile-chip').textContent = '👤 '+name;
   closeProfileModal();
+  updateStreak();
   buildRecordView();
   buildSongsView();
   loadSelectedChords();
   refreshPool();
   buildChordGrid();
   loadCustomLayouts();
+}
+
+/* ── 連続日数（プロフィール単位） ── */
+const STREAK_PREFIX = 'guitar-streak-';
+function streakKey(name){ return STREAK_PREFIX + name; }
+function dateStr(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+// プロフィール読み込み時に呼び、「今日すでに開いた」なら据え置き、「前日から連続」なら+1、それ以外はリセットする
+function updateStreak(){
+  if(!currentProfile) return;
+  const today = dateStr(new Date());
+  let data;
+  try { data = JSON.parse(localStorage.getItem(streakKey(currentProfile))||'null'); } catch(e){ data = null; }
+  if(!data) data = { last:null, count:0 };
+  if(data.last !== today){
+    const yesterday = new Date(); yesterday.setDate(yesterday.getDate()-1);
+    data.count = (data.last === dateStr(yesterday)) ? data.count+1 : 1;
+    data.last = today;
+    localStorage.setItem(streakKey(currentProfile), JSON.stringify(data));
+  }
+}
+function getStreak(){
+  if(!currentProfile) return 0;
+  try { const data = JSON.parse(localStorage.getItem(streakKey(currentProfile))||'null'); return data ? data.count : 0; } catch(e){ return 0; }
 }
 function saveStatus(){ if(currentProfile) localStorage.setItem(profileKey(currentProfile), JSON.stringify(chordStatus)); }
 function addProfile(){

@@ -21,7 +21,7 @@
 - **自由配置レイアウトエディタ**（`le*`系関数）: コード名/フレット図/指使いの3ブロックを、縦画面・横画面それぞれ独立にドラッグ＆リサイズで配置できる。位置は比率(`x,y,w,h`は0〜1の割合)で保存するため画面サイズが変わっても再現できる。z-order（重なり順）もレイアウトデータに含めて保存・復元する。
 - **自動スケール**（`computeAutoScale`）: 実際のDOM実寸（`getBoundingClientRect`）と`matchMedia('(orientation:...)')`から表示倍率を逆算する。`window.innerW/H`ではなくDOM実寸を使うのは、CSSレイアウト確定後に発火するResizeObserverと組み合わせてタイミング依存を減らすため。
 - **状態**: モジュールレベル変数（`pool`, `deck`, `idx`, `hist`, `bpm`, `beats`, `chordStatus`, `currentProfile`など）。フレームワークなし。
-- **永続化はすべてlocalStorage、プロフィール単位**: `guitar-selected-chords[-プロフィール名]`（選択コード）、`guitar-profile-<名前>`（コードごとの習熟度`chordStatus`）、`guitar-custom-layout[-プロフィール名]`（自由配置）。複数人／複数用途で使い分けられるよう、練習記録一式がプロフィールごとに独立している。
+- **永続化はすべてlocalStorage、プロフィール単位**: `guitar-selected-chords[-プロフィール名]`（選択コード）、`guitar-profile-<名前>`（コードごとの習熟度`chordStatus`）、`guitar-custom-layout[-プロフィール名]`（自由配置）、`guitar-streak-<名前>`（連続日数、`{last, count}`）。複数人／複数用途で使い分けられるよう、練習記録一式がプロフィールごとに独立している。
 - **finger色マップ**（`FC`）: 指1=緑、2=青、3=茶、4=紫、B(バレー)=アクセントオレンジ。
 
 ## 記録・弾ける曲判定の仕組み
