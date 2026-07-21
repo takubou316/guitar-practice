@@ -20,10 +20,11 @@
 - **メトロノーム**: Web Audio APIで前もってスケジューリングする方式（`sched()`が`nextT`を先読みして`click()`を予約、20msごとにポーリング）。ジッター防止のための標準的なやり方。
 - **自由配置レイアウトエディタ**（`le*`系関数）: コード名/フレット図/指使いの3ブロックを、縦画面・横画面それぞれ独立にドラッグ＆リサイズで配置できる。位置は比率(`x,y,w,h`は0〜1の割合)で保存するため画面サイズが変わっても再現できる。z-order（重なり順）もレイアウトデータに含めて保存・復元する。
 - **自動スケール**（`computeAutoScale`）: 実際のDOM実寸（`getBoundingClientRect`）と`matchMedia('(orientation:...)')`から表示倍率を逆算する。`window.innerW/H`ではなくDOM実寸を使うのは、CSSレイアウト確定後に発火するResizeObserverと組み合わせてタイミング依存を減らすため。
-- **状態**: モジュールレベル変数（`pool`, `deck`, `idx`, `hist`, `bpm`, `beats`, `chordStatus`, `currentProfile`など）。フレームワークなし。
+- **状態**: モジュールレベル変数（`pool`, `queue`, `current`, `hist`, `bpm`, `beats`, `chordStatus`, `currentProfile`など）。フレームワークなし。
+- **出題順（`queue`）**: 「ランダムだが同じコードが極端に連続/長期間出ない」ようにするため、poolを1周ぶんシャッフルしたものを`queue`にまとめて積む方式（1回ずつ独立に抽選しない）。`ensureQueue(n)`で常に`LOOKAHEAD`(5)手先まで積まれた状態を保証し、`peekChord(n)`（1-indexed、次の1手先から）で先読みする。`nextChord()`は`queue.shift()`、`prevChord()`は`hist`から戻して`queue.unshift()`（▶で完全に元の状態に戻る対称設計）。コードタブの「次のコード」欄も「流れる」タブも同じ`queue`を見るため表示がズレない。
 - **永続化はすべてlocalStorage、プロフィール単位**: `guitar-selected-chords[-プロフィール名]`（選択コード）、`guitar-profile-<名前>`（コードごとの習熟度`chordStatus`）、`guitar-custom-layout[-プロフィール名]`（自由配置）、`guitar-streak-<名前>`（連続日数、`{last, count}`）。複数人／複数用途で使い分けられるよう、練習記録一式がプロフィールごとに独立している。
 - **finger色マップ**（`FC`）: 指1=緑、2=青、3=茶、4=紫、B(バレー)=アクセントオレンジ。
-- **「流れる」タブ**（コードタブとは別画面）: 現在/直前/次の3コードだけを常時保持する固定3タイル(`flow-track`の子要素0,1,2)を、位置は毎フレーム`transform: translate()`で計算し直す方式（DOMのタイルを増減させない）。切替の瞬間（`nextChord`/`prevChord`→`render()`→`syncFlowQueue()`）にタイル内テキストだけ差し替えてアニメーション起点(`flowStartAt`)をリセットするため、位置計算式（`layoutFlow`の`-(1.5+frac)*w`）が数学的に連続になるよう設計してあり、切替の瞬間に見た目がジャンプしない。小節ベース自動切替(`barsPerSwitch>0`)かつメトロノーム再生中のみ流れ、それ以外（手動送りのみ）は静止表示になる。マーカー線(`#flow-marker`)は`sched()`が実際に音を鳴らす拍タイミングで`pulseFlowMarker()`により毎拍光り、その拍でコード切替が起きるかを`sched()`側で先読み(`willSwitch`)して`onBeatUI`に渡すことで、切替の拍だけ大きく光らせて区別している。
+- **「流れる」タブ**（コードタブとは別画面）: 現在＋この先3つ、常に`FLOW_N`(4)個の固定タイル(`flow-track`の子要素0..3、それぞれ内部に名前とフレット図SVGを持つ)を、位置は毎フレーム`transform: translate()`で計算し直す方式（DOMのタイルを増減させない）。切替の瞬間（`nextChord`/`prevChord`→`render()`→`syncFlowQueue()`）に各タイルの内容（名前＋`drawFret`で描くフレット図）だけ`current`/`peekChord(1..3)`から差し替えてアニメーション起点(`flowStartAt`)をリセットするため、位置計算式（`layoutFlow`の`-(0.5+frac)*w`、各タイルの不透明度も`FLOW_REST_OPACITY`を使って同様に連続的に補間）が数学的に連続になるよう設計してあり、切替の瞬間に見た目がジャンプしない。小節ベース自動切替(`barsPerSwitch>0`)かつメトロノーム再生中のみ流れ、それ以外（手動送りのみ）は静止表示になる。マーカー線(`#flow-marker`)は`sched()`が実際に音を鳴らす拍タイミングで`pulseFlowMarker()`により毎拍光り、その拍でコード切替が起きるかを`sched()`側で先読み(`willSwitch`)して`onBeatUI`に渡すことで、切替の拍だけ大きく光らせて区別している。
 
 ## 記録・弾ける曲判定の仕組み
 

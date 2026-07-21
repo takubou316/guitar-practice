@@ -268,8 +268,11 @@ footer.controls-bar { height: var(--ftr); flex-shrink: 0; display: flex; align-i
 @keyframes flowPulse { 0% { opacity: 1; box-shadow: 0 0 10px 2px var(--accent); } 100% { opacity: 0.55; box-shadow: none; } }
 @keyframes flowPulseSwitch { 0% { opacity: 1; box-shadow: 0 0 24px 6px var(--accent); width: 4px; } 100% { opacity: 0.55; box-shadow: none; width: 2px; } }
 .flow-track { position: absolute; left: 20%; top: 50%; display: flex; }
-.flow-tile { width: 38vw; max-width: 220px; flex-shrink: 0; text-align: center; }
-.flow-tile-name { font-size: clamp(28px, 13vw, 72px); font-weight: 800; line-height: 1; color: var(--accent); }
+.flow-tile { width: 26vw; max-width: 150px; flex-shrink: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 6px; box-sizing: border-box; }
+.flow-tile-name { font-size: clamp(14px, 4.5vw, 20px); font-weight: 800; line-height: 1; color: var(--text); }
+.flow-tile-fret { width: 100%; height: auto; }
+.flow-tile:first-child { background: var(--surface2); border-radius: 10px; border: 1px solid var(--accent); }
+.flow-tile:first-child .flow-tile-name { color: var(--accent); }
 .flow-hint { text-align: center; font-size: 12px; color: var(--text3); }
 .song-hint { font-size: 11px; color: var(--text3); padding: 2px 2px 6px; line-height: 1.5; }
 .song-row { background: var(--surface); border: 0.5px solid var(--border); border-radius: var(--radius); padding: 10px 12px; margin-bottom: 8px; cursor: pointer; -webkit-tap-highlight-color: transparent; user-select: none; }
@@ -504,9 +507,10 @@ body.le-prev-on .le-preview-content { display:flex; flex-direction:column; align
       <div class="flow-lane">
         <div class="flow-marker" id="flow-marker"></div>
         <div class="flow-track" id="flow-track">
-          <div class="flow-tile flow-prev"><div class="flow-tile-name" id="flow-name-prev"></div></div>
-          <div class="flow-tile flow-current"><div class="flow-tile-name" id="flow-name-cur"></div></div>
-          <div class="flow-tile flow-next"><div class="flow-tile-name" id="flow-name-next"></div></div>
+          <div class="flow-tile"><div class="flow-tile-name"></div><svg class="flow-tile-fret" viewBox="0 0 140 200"></svg></div>
+          <div class="flow-tile"><div class="flow-tile-name"></div><svg class="flow-tile-fret" viewBox="0 0 140 200"></svg></div>
+          <div class="flow-tile"><div class="flow-tile-name"></div><svg class="flow-tile-fret" viewBox="0 0 140 200"></svg></div>
+          <div class="flow-tile"><div class="flow-tile-name"></div><svg class="flow-tile-fret" viewBox="0 0 140 200"></svg></div>
         </div>
       </div>
       <div class="flow-hint" id="flow-hint">メトロノームを再生すると、コードが右から流れてきます</div>
@@ -763,7 +767,8 @@ const FN = {1:'人',2:'中',3:'薬',4:'小','B':'B'};
 
 /* ── 状態 ── */
 let selectedNames = new Set(ALL_CHORDS.filter(c=>c.type==='beginner').map(c=>c.name));
-let pool = [], deck = [], idx = 0, hist = [];
+let pool = [], queue = [], current = null, hist = [];
+const LOOKAHEAD = 5; // コード・流れるタブ両方が参照する「先読み済みの次のコード」の保持数
 let timerIv=null, timerMax=0, timerEl=0;
 let audioCtx=null, metroOn=false, bpm=80, beats=4, accentLast=true;
 let beat=0, bar=0, barsPerSwitch=2, nextT=0, schedIv=null;
@@ -771,7 +776,14 @@ let flowStartAt=0;
 let fretIsHoriz=true, autoScale=true, appMuted=false;
 
 function shuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
-function peekNextChord(){return deck[(idx+1)%deck.length];}
+// poolを1周ぶんシャッフルして積むことで「1周の中で全コードが必ず1回出る」性質を保ったまま、
+// 何手先まで見てもOKな先読み用の待ち行列にする（コードタブ・流れるタブで共有）
+function ensureQueue(n){
+  const need=n===undefined?LOOKAHEAD:n;
+  while(queue.length<need) queue.push(...shuffle([...pool]));
+}
+function peekChord(n){ensureQueue(n);return queue[n-1];}
+function peekNextChord(){return peekChord(1);}
 
 /* ── コール選択 ── */
 // 選択コードはプロフィールごとに保存し、次回起動時も同じ選択を復元する
@@ -793,8 +805,10 @@ function getPool(){
   return p.length>0?p:[ALL_CHORDS[0]];
 }
 function refreshPool(){
-  pool=getPool(); deck=shuffle([...pool]); idx=0; hist=[];
-  renderHist(); render(deck[0]);
+  pool=getPool(); queue=[]; ensureQueue();
+  current=queue.shift(); ensureQueue();
+  hist=[];
+  renderHist(); render(current);
 }
 function toggleChord(name){
   if(selectedNames.has(name)){
@@ -951,18 +965,21 @@ function onOverlayClick(e){if(e.target===document.getElementById('settings-overl
 
 /* ── コード表示 ── */
 function nextChord(){
-  hist.push(deck[idx].name); if(hist.length>10)hist.shift();
-  const upcoming = peekNextChord();
-  idx=(idx+1)%deck.length;
-  if(idx===0){
-    deck=shuffle([...pool]);
-    // 表示していた「次のコード」を必ず先頭に置く
-    const ni=deck.findIndex(c=>c.name===upcoming.name);
-    if(ni>0){const t=deck[0];deck[0]=deck[ni];deck[ni]=t;}
-  }
-  unmarkSoon(); render(deck[idx]); renderHist(); resetTimer();
+  hist.push(current.name); if(hist.length>10)hist.shift();
+  ensureQueue();
+  current=queue.shift();
+  ensureQueue();
+  unmarkSoon(); render(current); renderHist(); resetTimer();
 }
-function prevChord(){idx=(idx-1+deck.length)%deck.length; unmarkSoon(); render(deck[idx]);}
+// 履歴(hist)を巻き戻す形で「戻る」を実装する。離れたコードはqueueの先頭に戻すため、
+// 直後に▶を押すと元の状態にきっちり復元される（undo/redoの対称性）。
+function prevChord(){
+  if(hist.length===0) return;
+  const prevName=hist.pop();
+  queue.unshift(current);
+  current=ALL_CHORDS.find(c=>c.name===prevName);
+  unmarkSoon(); render(current); renderHist();
+}
 function renderHist(){
   document.getElementById('hist').innerHTML=hist.map((n,i)=>`<span class="chip${i===hist.length-1?' last':''}">${n}</span>`).join('');
 }
@@ -1043,7 +1060,7 @@ function setFretOrient(horiz){
   document.getElementById('fret-vert').classList.toggle('active',!horiz);
   document.getElementById('fret-horiz').classList.toggle('active',horiz);
   if(autoScale){ baseScale=computeAutoScale(); updateScaleUI(); }
-  render(deck[idx]);
+  render(current);
 }
 function drawFingers(c){
   document.getElementById('finger-list').innerHTML=c.fingers.map(fi=>`<div class="finger-row"><div class="fdot" style="background:${FC[fi.f]||'#555'}">${FN[fi.f]}</div><div><div class="fd">${fi.d}</div><div class="fs">${fi.sub}</div></div></div>`).join('');
@@ -1170,28 +1187,38 @@ function setAccent(last){
 function onBarSelChange(){barsPerSwitch=parseInt(document.getElementById('bar-sel').value);bar=0;buildBarPips();unmarkSoon();}
 
 /* ── コードが流れる表示（現在のコード切替タイミングに同期して右→左に流す） ── */
-// 直前/現在/次のコード名をタイルに反映し、アニメーションの起点時刻をリセットする。
+const FLOW_N = 4; // 現在+この先3つ、常に4枚流す
+const FLOW_REST_OPACITY = [1, 0.65, 0.45, 0.3]; // 各スロットの静止時の濃さ（現在→未来に向けて薄く）
+// 現在＋先読み済みの次の3コード（queueは両タブ共通なのでコードタブと表示がズレない）をタイルに反映し、
+// フレット図も描き直して、アニメーションの起点時刻をリセットする。
 // render()から毎回呼ばれるので、手動送り・自動送り・初期表示のどれでも同じ経路で同期される。
 function syncFlowQueue(){
-  const prevC=deck[(idx-1+deck.length)%deck.length], curC=deck[idx], nextC=peekNextChord();
-  const set=(id,c)=>{const el=document.getElementById(id); if(el) el.textContent=c?c.name:'';};
-  set('flow-name-prev',prevC); set('flow-name-cur',curC); set('flow-name-next',nextC);
+  const track=document.getElementById('flow-track');
+  if(!track) return;
+  for(let k=0;k<FLOW_N;k++){
+    const c = k===0 ? current : peekChord(k);
+    const tile=track.children[k];
+    if(!tile||!c) continue;
+    tile.querySelector('.flow-tile-name').textContent=c.name;
+    drawFret(c,tile.querySelector('.flow-tile-fret'));
+  }
   flowStartAt=performance.now();
 }
 // 小節ベースの自動切替が有効な間だけ、1コードぶんの表示時間(ミリ秒)を返す。手動送りのみの設定では0(=流さず静止)。
 function flowDurationMs(){ return (metroOn && barsPerSwitch>0) ? barsPerSwitch*beats*60000/bpm : 0; }
 function layoutFlow(){
   const track=document.getElementById('flow-track');
-  if(!track||!track.children[1]) return;
-  const [t0,t1,t2]=track.children;
-  const w=t1.offsetWidth;
+  if(!track||!track.children[0]) return;
+  const w=track.children[0].offsetWidth;
   const dur=flowDurationMs();
   const frac=dur>0 ? Math.min(1,(performance.now()-flowStartAt)/dur) : 0;
-  track.style.transform=`translate(${-(1.5+frac)*w}px,-50%)`;
-  // マーカーに近いタイルほど濃く見えるよう、位置(frac)に合わせて不透明度を連続的に切り替える
-  t0.style.opacity=0.3;
-  t1.style.opacity=1-frac*0.7;
-  t2.style.opacity=0.3+frac*0.7;
+  track.style.transform=`translate(${-(0.5+frac)*w}px,-50%)`;
+  // マーカーに近いタイルほど濃く見えるよう、位置(frac)に合わせて各タイルの不透明度を連続的に切り替える
+  for(let k=0;k<track.children.length;k++){
+    const from=FLOW_REST_OPACITY[k]??0.3;
+    const to=k===0 ? FLOW_REST_OPACITY[FLOW_REST_OPACITY.length-1] : (FLOW_REST_OPACITY[k-1]??1);
+    track.children[k].style.opacity=from+frac*(to-from);
+  }
 }
 (function flowLoop(){
   if(document.getElementById('view-flow')?.classList.contains('active')) layoutFlow();
@@ -1928,11 +1955,11 @@ document.getElementById('profile-modal').addEventListener('click',e=>{ if(e.targ
 
 buildRecordView();
 buildSongsView();
-pool=getPool(); deck=shuffle([...pool]);
+pool=getPool(); queue=[]; ensureQueue(); current=queue.shift(); ensureQueue();
 // デフォルト値をUIに反映（body クラス・ボタン状態・accentUIを初期化）
 setFretOrient(fretIsHoriz);
 setAccent(accentLast);
-render(deck[0]);
+render(current);
 
 // 前回プロフィールを復元、なければ選択画面を表示
 const _last = localStorage.getItem(LS_CURRENT);
