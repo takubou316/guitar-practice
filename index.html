@@ -261,16 +261,17 @@ footer.controls-bar { height: var(--ftr); flex-shrink: 0; display: flex; align-i
 /* ── コードが流れる表示 ── */
 #view-flow { padding: 10px; gap: 8px; }
 .flow-lane { position: relative; flex: 1; overflow: hidden; border-radius: var(--radius); background: linear-gradient(180deg,var(--surface),var(--surface2)); border: 0.5px solid var(--border); }
-/* heightはapplyFlowScale()がJSでflow-staffの実寸に合わせて設定する（縦横で見え方の最適な大きさが違うため、vwだけでは決められない） */
-.flow-marker { position: absolute; left: 20%; top: 50%; transform: translateY(-50%); width: 2px; background: var(--accent); opacity: 0.55; }
+/* heightはflow-staffの実寸と同じ計算式にして、マーカーの縦の長さを実際の指板の高さに合わせる */
+.flow-marker { position: absolute; left: 20%; top: 50%; transform: translateY(-50%); width: 2px; height: 27.86vw; max-height: 171.4px; background: var(--accent); opacity: 0.55; }
 .flow-marker::after { content: ''; position: absolute; left: -5px; top: -5px; width: 12px; height: 12px; border-radius: 50%; background: var(--accent); }
 .flow-marker.pulse { animation: flowPulse 0.18s ease-out; }
 .flow-marker.pulse-switch { animation: flowPulseSwitch 0.35s ease-out; }
 @keyframes flowPulse { 0% { opacity: 1; box-shadow: 0 0 10px 2px var(--accent); } 100% { opacity: 0.55; box-shadow: none; } }
 @keyframes flowPulseSwitch { 0% { opacity: 1; box-shadow: 0 0 24px 6px var(--accent); width: 4px; } 100% { opacity: 0.55; box-shadow: none; width: 2px; } }
 .flow-track { position: absolute; left: 20%; top: 50%; }
-.flow-staff { display: block; }
-.flow-string-labels { position: absolute; left: 4px; top: 50%; transform: translateY(-50%); width: 14px; z-index: 2; }
+.flow-staff { display: block; width: 104vw; max-width: 640px; height: auto; }
+/* heightはflow-staffの実寸(104vw、比率150/560)と同じ計算式にして、SVGと文字ラベルの縦位置を常に一致させる */
+.flow-string-labels { position: absolute; left: 4px; top: 50%; transform: translateY(-50%); width: 14px; height: 27.86vw; max-height: 171.4px; z-index: 2; }
 .flow-string-labels span { position: absolute; left: 0; font-size: 10px; color: var(--text2); transform: translateY(-50%); font-family: sans-serif; }
 .flow-hint { text-align: center; font-size: 12px; color: var(--text3); }
 .song-hint { font-size: 11px; color: var(--text3); padding: 2px 2px 6px; line-height: 1.5; }
@@ -950,13 +951,12 @@ window.addEventListener('orientationchange', () => {
   resyncAudioIfNeeded();
   scheduleScaleUpdate(50);
   applyCustomLayouts();
-  applyFlowScale();
-  setTimeout(() => { resyncAudioIfNeeded(); if(autoScale){ baseScale=computeAutoScale(); updateScaleUI(); } applyCustomLayouts(); applyFlowScale(); }, 400);
-  setTimeout(() => { resyncAudioIfNeeded(); if(autoScale){ baseScale=computeAutoScale(); updateScaleUI(); } applyCustomLayouts(); applyFlowScale(); }, 700);
+  setTimeout(() => { resyncAudioIfNeeded(); if(autoScale){ baseScale=computeAutoScale(); updateScaleUI(); } applyCustomLayouts(); }, 400);
+  setTimeout(() => { resyncAudioIfNeeded(); if(autoScale){ baseScale=computeAutoScale(); updateScaleUI(); } applyCustomLayouts(); }, 700);
 });
 
 // resize: 上記をカバーできないブラウザ向けフォールバック
-window.addEventListener('resize', () => { resyncAudioIfNeeded(); scheduleScaleUpdate(50); applyCustomLayouts(); applyFlowScale(); });
+window.addEventListener('resize', () => { resyncAudioIfNeeded(); scheduleScaleUpdate(50); applyCustomLayouts(); });
 
 /* ── ビュー・設定 ── */
 function showView(id,el){
@@ -966,8 +966,6 @@ function showView(id,el){
   el.classList.add('active');
   // コードタブに戻った時、ペインが表示された後にカスタムレイアウトを再適用
   if(id === 'chord') requestAnimationFrame(() => applyCustomLayouts());
-  // 流れるタブに切り替えた時、レーンが表示された後の実寸を基準にサイズを計算し直す
-  if(id === 'flow') requestAnimationFrame(() => applyFlowScale());
 }
 function toggleSettings(){document.getElementById('settings-overlay').classList.toggle('open');}
 function onOverlayClick(e){if(e.target===document.getElementById('settings-overlay'))toggleSettings();}
@@ -1213,32 +1211,6 @@ function buildFlowStringLabels(){
   const labels=['e','B','G','D','A','E'];
   const gap=(FLOW_STR_BOTTOM-FLOW_STR_TOP)/5;
   wrap.innerHTML=labels.map((L,i)=>`<span style="top:${((FLOW_STR_TOP+i*gap)/FLOW_H*100).toFixed(1)}%">${L}</span>`).join('');
-}
-// 縦画面は横幅が狭く高さが余るぶん、横幅(vw)だけで大きさを決めると小さくなりすぎる
-// （横画面は幅に対して高さが少ないのでvw基準でもちょうど良く収まっていた）。
-// レーンの実際の幅・高さ両方から、画面の向きに応じて画面内に見せたいスロット数を変え、
-// 大きい方（＝より見やすい方）の制約で頭打ちになるようJSで都度スケールを計算する。
-const FLOW_SLOTS_VISIBLE = { portrait: 1.3, landscape: 2.6 };
-function computeFlowScale(){
-  const lane=document.querySelector('.flow-lane');
-  if(!lane) return 1;
-  const r=lane.getBoundingClientRect();
-  if(r.width<50||r.height<50) return 1;
-  const isPortrait=window.matchMedia('(orientation:portrait)').matches;
-  const slotsVisible=isPortrait?FLOW_SLOTS_VISIBLE.portrait:FLOW_SLOTS_VISIBLE.landscape;
-  const scaleByWidth=r.width/(slotsVisible*FLOW_SLOT_W);
-  const scaleByHeight=(r.height*0.85)/FLOW_H;
-  return Math.min(scaleByWidth, scaleByHeight, 3.5);
-}
-function applyFlowScale(){
-  const scale=computeFlowScale();
-  const svg=document.getElementById('flow-staff');
-  const labels=document.getElementById('flow-string-labels');
-  const marker=document.getElementById('flow-marker');
-  const w=FLOW_SLOT_W*FLOW_N*scale, h=FLOW_H*scale;
-  if(svg){ svg.style.width=w+'px'; svg.style.height=h+'px'; }
-  if(labels) labels.style.height=h+'px';
-  if(marker) marker.style.height=h+'px';
 }
 // 6本の弦を1本の帯としてFLOW_N個ぶん通しで描き、各コードの運指はそのスロット内に重ねて描く
 // （個別の小さいフレット図をタイルごとに並べるのではなく、同じ弦の上をコードが流れていく見た目にする）。
@@ -1865,7 +1837,6 @@ updateScaleUI();
 buildChordGrid();
 buildDots(); buildBarPips();
 buildFlowStringLabels();
-applyFlowScale();
 
 /* ── 記録 ── */
 let chordStatus = {};
