@@ -23,6 +23,7 @@
 - **状態**: モジュールレベル変数（`pool`, `deck`, `idx`, `hist`, `bpm`, `beats`, `chordStatus`, `currentProfile`など）。フレームワークなし。
 - **永続化はすべてlocalStorage、プロフィール単位**: `guitar-selected-chords[-プロフィール名]`（選択コード）、`guitar-profile-<名前>`（コードごとの習熟度`chordStatus`）、`guitar-custom-layout[-プロフィール名]`（自由配置）、`guitar-streak-<名前>`（連続日数、`{last, count}`）。複数人／複数用途で使い分けられるよう、練習記録一式がプロフィールごとに独立している。
 - **finger色マップ**（`FC`）: 指1=緑、2=青、3=茶、4=紫、B(バレー)=アクセントオレンジ。
+- **「流れる」タブ**（コードタブとは別画面）: 現在/直前/次の3コードだけを常時保持する固定3タイル(`flow-track`の子要素0,1,2)を、位置は毎フレーム`transform: translate()`で計算し直す方式（DOMのタイルを増減させない）。切替の瞬間（`nextChord`/`prevChord`→`render()`→`syncFlowQueue()`）にタイル内テキストだけ差し替えてアニメーション起点(`flowStartAt`)をリセットするため、位置計算式（`layoutFlow`の`-(1.5+frac)*w`）が数学的に連続になるよう設計してあり、切替の瞬間に見た目がジャンプしない。小節ベース自動切替(`barsPerSwitch>0`)かつメトロノーム再生中のみ流れ、それ以外（手動送りのみ）は静止表示になる。
 
 ## 記録・弾ける曲判定の仕組み
 
