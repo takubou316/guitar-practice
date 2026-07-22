@@ -200,6 +200,7 @@ footer.controls-bar { height: var(--ftr); flex-shrink: 0; display: flex; align-i
 .ctrl-btn:active { opacity: 0.7; }
 .ctrl-btn.accent { background: var(--accent); border-color: var(--accent); color: #fff; }
 .ctrl-btn.playing { background: var(--accent); border-color: var(--accent); color: #fff; }
+.ctrl-btn:disabled { opacity: 0.35; cursor: not-allowed; }
 .beat-wrap { display: flex; flex-direction: column; gap: 3px; align-items: center; }
 .beat-dots { display: flex; gap: 5px; }
 .bdot { width: 9px; height: 9px; border-radius: 50%; background: var(--border); transition: background 0.05s, transform 0.05s; }
@@ -408,6 +409,10 @@ body.le-prev-on .le-preview-content { display:flex; flex-direction:column; align
 .audio-indicator svg { width: 16px; height: 16px; color: #aaa; display: block; }
 .audio-indicator.muted svg { color: #777; }
 .audio-indicator:active { opacity: 0.55; }
+
+/* ── マイク自動判定の状態表示 ── */
+.mic-status { position: fixed; top: calc(var(--hdr) + 7px); left: 10px; z-index: 40; max-width: 62vw; font-size: 11px; padding: 4px 10px; border-radius: 20px; background: var(--warn-bg); border: 0.5px solid var(--warn-border); color: var(--accent); display: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mic-status.visible { display: block; }
 </style>
 </head>
 <body>
@@ -532,8 +537,12 @@ body.le-prev-on .le-preview-content { display:flex; flex-direction:column; align
     <div class="ftr-spacer"></div>
     <div class="bpm-ftr"><b id="bpm-val">80</b> BPM</div>
     <button class="ctrl-btn" id="play-btn" onclick="toggleMetro()"><span id="play-icon">▶</span></button>
+    <button class="ctrl-btn" id="mic-btn" onclick="toggleMic()">🎤</button>
   </footer>
 </div>
+
+<!-- マイク自動判定の状態表示 -->
+<div class="mic-status" id="mic-status"></div>
 
 <!-- 音声インジケーター -->
 <div class="audio-indicator" id="audio-indicator" onclick="toggleAppMute()">
@@ -1171,7 +1180,7 @@ function stopMetro(){
   document.getElementById('bar-counter').textContent='';
   unmarkSoon();updateMetroUI();updateAudioIndicator();
 }
-function toggleMetro(){metroOn?stopMetro():startMetro();}
+function toggleMetro(){if(!metroOn&&micOn)return; metroOn?stopMetro():startMetro();}
 // 画面ロック／アプリ切り替えからの復帰時: AudioContextがブラウザにより
 // suspendedにされていることがあるため明示的にresumeし、スケジューラも再同期する
 document.addEventListener('visibilitychange', () => {
@@ -1182,6 +1191,161 @@ document.addEventListener('visibilitychange', () => {
 function updateMetroUI(){
   document.getElementById('play-icon').textContent=metroOn?'■':'▶';
   document.getElementById('play-btn').classList.toggle('playing',metroOn);
+  document.getElementById('mic-btn').disabled=metroOn; // マイク判定とは排他
+}
+
+/* ── マイクで自動判定→自動でnextChord() ── */
+// オンセット検出(RMS)とクロマ解析(FFT)はAnalyserNodeを分ける: 前者は反応の速さが命(短いバッファ)、
+// 後者は周波数分解能が命(長いバッファ)で、両立できないため。同じmicSourceNodeから両方に接続する。
+let micOn=false, micStream=null, micOnsetAnalyser=null, micChromaAnalyser=null, micSourceNode=null;
+let _micStatusTimer=null;
+function showMicStatus(text){
+  const el=document.getElementById('mic-status');
+  if(!el) return;
+  el.textContent=text;
+  el.classList.toggle('visible',!!text);
+  clearTimeout(_micStatusTimer);
+  if(text) _micStatusTimer=setTimeout(()=>el.classList.remove('visible'),3000);
+}
+async function startMic(){
+  if(metroOn) return; // 排他: メトロノーム再生中は起動しない
+  let stream;
+  try{
+    stream=await navigator.mediaDevices.getUserMedia({audio:true});
+  }catch(e){
+    showMicStatus('🎤 マイクを使用できませんでした（許可設定を確認してください）');
+    return;
+  }
+  micStream=stream;
+  const ctx=getCtx();
+  if(ctx.state==='suspended') ctx.resume();
+  micSourceNode=ctx.createMediaStreamSource(micStream);
+  micOnsetAnalyser=ctx.createAnalyser();
+  micOnsetAnalyser.fftSize=512; // 短いバッファ(約11.6ms分)で音量変化に素早く反応させる
+  micChromaAnalyser=ctx.createAnalyser();
+  // ギターの低音域は隣り合う半音の間隔が数Hz〜十数Hzしかなく、fftSize=4096(44.1kHz環境で1bin≒10.8Hz)では
+  // 半音1つに1〜2binしか割り当たらず隣の音名に漏れてしまう(実測で確認済み)。16384にして1bin≒2.7Hzまで細かくする。
+  micChromaAnalyser.fftSize=16384;
+  // destinationにはつながない: マイク音をそのまま出力するとハウリングの原因になるため、解析専用の接続にとどめる
+  micSourceNode.connect(micOnsetAnalyser);
+  micSourceNode.connect(micChromaAnalyser);
+  micOn=true;
+  micBaseline=0.02; micCooldownUntil=0;
+  micMonitorIv=setInterval(micMonitorTick,40);
+  showMicStatus('🎤 マイクON: コードを弾いてください');
+  updateMicUI();
+}
+function stopMic(){
+  if(micMonitorIv){clearInterval(micMonitorIv);micMonitorIv=null;}
+  if(micStream) micStream.getTracks().forEach(t=>t.stop());
+  micStream=null; micOnsetAnalyser=null; micChromaAnalyser=null; micSourceNode=null;
+  micOn=false;
+  updateMicUI();
+}
+
+/* ── M2: ストラム(ピックで弾いた瞬間)検出 ── */
+let micMonitorIv=null, micBaseline=0.02, micCooldownUntil=0;
+const MIC_ONSET_RATIO=2.5, MIC_ONSET_MIN=0.05, MIC_SETTLE_MS=150, MIC_COOLDOWN_MS=500, MIC_BASELINE_ALPHA=0.05;
+// 時間領域データからRMS(実効値)を計算する。音量の急上昇を検出するための簡易な指標。
+function micRMS(){
+  const buf=new Uint8Array(micOnsetAnalyser.fftSize);
+  micOnsetAnalyser.getByteTimeDomainData(buf);
+  let sum=0;
+  for(let i=0;i<buf.length;i++){ const v=(buf[i]-128)/128; sum+=v*v; }
+  return Math.sqrt(sum/buf.length);
+}
+// 40msごとに呼ばれる監視ループ。「静かな状態からの急な音量上昇」をストラムとみなす。
+// ベースライン(ノイズフロア)は静かな時だけ緩やかに追従させ、ストラム直後の余韻を
+// 誤って「これが普段の音量」と学習しないようクールダウン中は更新しない。
+function micMonitorTick(){
+  if(!micOnsetAnalyser) return;
+  const now=performance.now();
+  if(now<micCooldownUntil) return;
+  const rms=micRMS();
+  if(rms>Math.max(micBaseline*MIC_ONSET_RATIO,MIC_ONSET_MIN)){
+    micCooldownUntil=now+MIC_SETTLE_MS+MIC_COOLDOWN_MS;
+    // ピックのアタック音が落ち着くまで少し待ってから解析する
+    setTimeout(()=>analyzeChordMatch(),MIC_SETTLE_MS);
+  } else {
+    micBaseline=micBaseline*(1-MIC_BASELINE_ALPHA)+rms*MIC_BASELINE_ALPHA;
+  }
+}
+
+/* ── M3: クロマベクトルによるコード一致判定 ── */
+const OPEN_STRING_PC=[null,4,11,7,2,9,4]; // 弦番号1-6(e,B,G,D,A,E)の開放弦ピッチクラス(C=0の半音番号)
+// コードデータ(fingers/open/barre)から、本来鳴るはずの音名(ピッチクラス0-11)の集合を機械的に算出する。
+// 新しい正解データを持たず、既存のALL_CHORDSの運指情報だけから導出する。
+function chordPitchClasses(c){
+  const set=new Set();
+  // バレーの範囲内でも、別の指で押さえ直されている弦(fingersに個別エントリがある弦)は
+  // 実際にはその指のフレットの音が鳴る。バレーのフレットをそのまま重複して加えないよう除外する。
+  const overridden=new Set(c.fingers.filter(fi=>fi.f!=='B').map(fi=>fi.s));
+  (c.open||[]).forEach(s=>set.add(OPEN_STRING_PC[s]));
+  if(c.barre){
+    for(let s=c.barre.from;s<=c.barre.to;s++){
+      if(overridden.has(s)) continue;
+      set.add((OPEN_STRING_PC[s]+c.barre.fret)%12);
+    }
+  }
+  c.fingers.forEach(fi=>{
+    if(fi.f==='B') return;
+    set.add((OPEN_STRING_PC[fi.s]+fi.fr)%12);
+  });
+  return set;
+}
+const MIC_MIN_FREQ=70, MIC_MAX_FREQ=1200; // 6弦開放(約82Hz)〜高めのフレットまでをだいたいカバーする範囲
+// FFTスペクトルを12音名(クロマベクトル)に畳み込む。オクターブ違いは同じ音名として合算するため、
+// 「何弦の何フレットか」までは判定せず「この音名が鳴っているか」だけを見る、複数弦が同時に鳴る
+// ギターのコードでも扱いやすい単位にする。
+function micChromaVector(){
+  const bufLen=micChromaAnalyser.frequencyBinCount;
+  const data=new Float32Array(bufLen);
+  micChromaAnalyser.getFloatFrequencyData(data); // dB値(無音付近は-Infinityになりうる)
+  const sr=getCtx().sampleRate;
+  const chroma=new Array(12).fill(0);
+  for(let i=0;i<bufLen;i++){
+    const freq=i*sr/micChromaAnalyser.fftSize;
+    if(freq<MIC_MIN_FREQ||freq>MIC_MAX_FREQ) continue;
+    const db=data[i];
+    if(!isFinite(db)) continue;
+    const amp=Math.pow(10,db/20); // dB→線形振幅に変換してから加算する(dBのまま足すと大小関係が意味を成さないため)
+    const midi=69+12*Math.log2(freq/440);
+    const pc=((Math.round(midi)%12)+12)%12;
+    chroma[pc]+=amp;
+  }
+  return chroma;
+}
+// 「期待される音名にどれだけエネルギーが集中しているか」の比率をスコアとする。
+// 完全一致を求めず、余計な音(ノイズ・ミュート弦の音等)が混ざっていても実用上「近い」を拾えるようにする。
+function chordMatchScore(chroma,expectedPCs){
+  let expectedEnergy=0,totalEnergy=0;
+  for(let pc=0;pc<12;pc++){
+    totalEnergy+=chroma[pc];
+    if(expectedPCs.has(pc)) expectedEnergy+=chroma[pc];
+  }
+  return totalEnergy>0 ? expectedEnergy/totalEnergy : 0;
+}
+
+/* ── M4: 自動進行への統合 ── */
+const MIC_MATCH_THRESHOLD=0.6;
+// ストラム検出後に呼ばれ、実際にコードが合っていたかを判定する。成功時は既存のnextChord()を呼ぶだけで
+// render()経由でコードタブ・流れるタブ両方に自動反映される(別々の実装は不要)。
+function analyzeChordMatch(){
+  if(!micChromaAnalyser||!current) return;
+  const chroma=micChromaVector();
+  const expected=chordPitchClasses(current);
+  const score=chordMatchScore(chroma,expected);
+  if(score>=MIC_MATCH_THRESHOLD){
+    showMicStatus('✓ 正解！次のコードへ');
+    nextChord();
+  } else {
+    showMicStatus('🎤 まだ合ってないみたい…（もう一度弾いてみてください）');
+  }
+}
+function toggleMic(){ if(!micOn&&metroOn) return; micOn?stopMic():startMic(); }
+function updateMicUI(){
+  document.getElementById('mic-btn').classList.toggle('playing',micOn);
+  document.getElementById('play-btn').disabled=micOn; // メトロノームとは排他
 }
 function onBpm(v){bpm=parseInt(v);document.getElementById('bpm-val').textContent=bpm;document.getElementById('bpm-val2').textContent=bpm;}
 function setSig(n,el){
