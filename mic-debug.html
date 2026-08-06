@@ -73,6 +73,7 @@
   <div class="row">
     <select id="target-chord"></select>
   </div>
+  <div class="note" id="chord-desc"></div>
   <div class="row">
     <button id="btn-mic-start">🎤 マイク開始</button>
     <button id="btn-mic-stop" class="secondary" disabled>停止</button>
@@ -235,6 +236,35 @@ TEST_CHORDS.forEach((c) => {
   opt.textContent = c.name;
   sel.appendChild(opt);
 });
+
+// 弦番号(1=e/高音側〜6=E/低音側)・指番号(1=人差し指〜4=小指、B=バレー)を文字表示に変換する。
+// index.htmlのフレット図と違い、押さえ方を文字だけで確認できるようにするための簡易表示
+// (このデバッグツールにはフレット図SVGレンダラーを持ち込んでいないため)。
+const STRING_LABEL = { 1: '1弦(e)', 2: '2弦(B)', 3: '3弦(G)', 4: '4弦(D)', 5: '5弦(A)', 6: '6弦(E)' };
+const FINGER_LABEL = { 1: '人差し指', 2: '中指', 3: '薬指', 4: '小指' };
+function describeChord(chord) {
+  const parts = [];
+  (chord.open || []).forEach((s) => parts.push({ s, text: `${STRING_LABEL[s]}開放` }));
+  (chord.muted || []).forEach((s) => parts.push({ s, text: `${STRING_LABEL[s]}ミュート` }));
+  if (chord.barre) {
+    parts.push({
+      s: chord.barre.from,
+      text: `${chord.barre.from}〜${chord.barre.to}弦を${chord.barre.fret}フレットでバレー(人差し指)`,
+    });
+  }
+  chord.fingers.forEach((fi) => {
+    if (fi.f === 'B') return; // バレーは上ですでに表示済み
+    parts.push({ s: fi.s, text: `${STRING_LABEL[fi.s]}${fi.fr}フレット(${FINGER_LABEL[fi.f]})` });
+  });
+  parts.sort((a, b) => a.s - b.s);
+  return parts.map((p) => p.text).join(' / ');
+}
+function updateChordDesc() {
+  const chord = TEST_CHORDS.find((c) => c.name === sel.value);
+  $('chord-desc').textContent = chord ? describeChord(chord) : '';
+}
+sel.onchange = updateChordDesc;
+updateChordDesc();
 
 let micCtx = null, micStream = null, micAnalyser = null, micLoop = null;
 
