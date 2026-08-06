@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>マイク判定 実験ツール</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 14px 14px 40px; background: #111; color: #eee;
+    font-family: system-ui, -apple-system, "Hiragino Sans", sans-serif;
+    font-size: 15px; line-height: 1.5;
+  }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .note { color: #999; font-size: 12px; margin: 0 0 16px; }
+  section { background: #1c1c1c; border-radius: 10px; padding: 12px 14px; margin-bottom: 14px; }
+  h2 { font-size: 14px; margin: 0 0 10px; color: #ffb84d; }
+  button {
+    font-size: 15px; padding: 10px 16px; border-radius: 8px; border: none;
+    background: #ffb84d; color: #111; font-weight: 600; cursor: pointer;
+  }
+  button.secondary { background: #333; color: #eee; }
+  button:disabled { opacity: 0.4; }
+  select {
+    font-size: 15px; padding: 8px 10px; border-radius: 8px; border: 1px solid #444;
+    background: #222; color: #eee; width: 100%;
+  }
+  .row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
+  .param-row { display: grid; grid-template-columns: 1fr auto; gap: 6px; align-items: center; margin-bottom: 6px; font-size: 13px; }
+  .param-row input[type=range] { width: 100%; }
+  .param-row .val { min-width: 48px; text-align: right; color: #ffb84d; font-variant-numeric: tabular-nums; }
+  .big-score { font-size: 42px; font-weight: 700; text-align: center; margin: 6px 0; font-variant-numeric: tabular-nums; }
+  .big-score.pass { color: #6f6; }
+  .big-score.fail { color: #f66; }
+  .bars { display: flex; gap: 10px; margin: 6px 0 10px; }
+  .bar-wrap { flex: 1; }
+  .bar-label { font-size: 11px; color: #999; margin-bottom: 2px; }
+  .bar-track { height: 10px; background: #333; border-radius: 5px; overflow: hidden; }
+  .bar-fill { height: 100%; }
+  .bar-fill.pos { background: #6f6; }
+  .bar-fill.neg { background: #f66; }
+  .peaks { font-size: 12px; color: #ccc; font-family: ui-monospace, monospace; white-space: pre-wrap; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; }
+  th, td { text-align: left; padding: 5px 6px; border-bottom: 1px solid #333; }
+  .ok { color: #6f6; } .ng { color: #f66; }
+  .status { font-size: 13px; color: #aaa; min-height: 18px; }
+  code { background: #222; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+</style>
+</head>
+<body>
+<h1>🎸 マイク判定 実験ツール</h1>
+<p class="note">
+  mic-chord-match.js の動作確認・実機調整専用ページ。本体アプリ(index.html)には組み込まれていない。<br>
+  マイクを使うには https 経由(GitHub Pages等)で開く必要がある。LAN経由の http では iOS Safari が
+  マイクを許可しない。
+</p>
+
+<section>
+  <h2>① 合成音での自己テスト(マイク不要)</h2>
+  <p class="note">OscillatorNodeで各コードの期待周波数を合成し、そのコード自身への一致スコアと、
+    一番紛らわしい隣接コード(平行調など)への一致スコアが正しく分かれるかを自動確認する。</p>
+  <button id="btn-selftest">自己テストを実行</button>
+  <div class="status" id="selftest-status"></div>
+  <table id="selftest-table" style="display:none">
+    <thead><tr><th>コード</th><th>自分自身</th><th>紛らわしい候補</th><th>判定</th></tr></thead>
+    <tbody id="selftest-body"></tbody>
+  </table>
+</section>
+
+<section>
+  <h2>② 実マイクでライブ判定</h2>
+  <div class="row">
+    <select id="target-chord"></select>
+  </div>
+  <div class="row">
+    <button id="btn-mic-start">🎤 マイク開始</button>
+    <button id="btn-mic-stop" class="secondary" disabled>停止</button>
+  </div>
+  <div class="status" id="mic-status">マイク停止中</div>
+
+  <div class="big-score" id="score-display">—</div>
+  <div class="bars">
+    <div class="bar-wrap">
+      <div class="bar-label">陽性証拠(合ってる音)</div>
+      <div class="bar-track"><div class="bar-fill pos" id="bar-pos" style="width:0%"></div></div>
+    </div>
+    <div class="bar-wrap">
+      <div class="bar-label">陰性証拠(紛らわしい音)</div>
+      <div class="bar-track"><div class="bar-fill neg" id="bar-neg" style="width:0%"></div></div>
+    </div>
+  </div>
+  <div class="note" id="confusable-info"></div>
+  <div class="peaks" id="peaks-display"></div>
+</section>
+
+<section>
+  <h2>③ パラメータ調整(実機でリアルタイムに反映)</h2>
+  <div id="params-container"></div>
+  <div class="row">
+    <select id="fft-size">
+      <option value="4096">fftSize 4096(反応速いが低音の分解能低め)</option>
+      <option value="8192" selected>fftSize 8192</option>
+      <option value="16384">fftSize 16384(旧実装と同じ、低音に強いが反応やや遅い)</option>
+    </select>
+  </div>
+</section>
+
+<script src="mic-chord-match.js"></script>
+<script>
+'use strict';
+/* ── デバッグツール専用の小さなコードデータセット(index.htmlのALL_CHORDSと同じスキーマの部分集合)。
+   本体のデータと重複するが、このページは実験専用の使い捨てツールなので許容している(2026-08-06の
+   ロードマップ参照)。本体のコードデータが変わってもこのページは自動追従しない点に注意。 ── */
+const TEST_CHORDS = [
+  { name:"Am",  fingers:[{f:2,s:4,fr:2},{f:3,s:3,fr:2},{f:1,s:2,fr:1}], open:[1,5], muted:[6], barre:null },
+  { name:"A",   fingers:[{f:1,s:4,fr:2},{f:2,s:3,fr:2},{f:3,s:2,fr:2}], open:[1,5], muted:[6], barre:null },
+  { name:"Em",  fingers:[{f:2,s:5,fr:2},{f:3,s:4,fr:2}], open:[1,2,3,6], muted:[], barre:null },
+  { name:"E",   fingers:[{f:2,s:5,fr:2},{f:3,s:4,fr:2},{f:1,s:3,fr:1}], open:[1,2,6], muted:[], barre:null },
+  { name:"G",   fingers:[{f:2,s:6,fr:3},{f:1,s:5,fr:2},{f:3,s:1,fr:3}], open:[2,3,4], muted:[], barre:null },
+  { name:"C",   fingers:[{f:3,s:5,fr:3},{f:2,s:4,fr:2},{f:1,s:2,fr:1}], open:[1,3], muted:[6], barre:null },
+  { name:"D",   fingers:[{f:1,s:3,fr:2},{f:3,s:2,fr:3},{f:2,s:1,fr:2}], open:[4], muted:[5,6], barre:null },
+  { name:"Dm",  fingers:[{f:1,s:1,fr:1},{f:2,s:3,fr:2},{f:3,s:2,fr:3}], open:[4], muted:[5,6], barre:null },
+  { name:"F",   fingers:[{f:"B",s:"1-6",fr:1},{f:2,s:3,fr:2},{f:3,s:5,fr:3},{f:4,s:4,fr:3}], open:[], muted:[], barre:{fret:1,from:1,to:6} },
+  { name:"G7",  fingers:[{f:3,s:6,fr:3},{f:2,s:5,fr:2},{f:1,s:1,fr:1}], open:[2,3,4], muted:[], barre:null },
+  { name:"E7",  fingers:[{f:2,s:5,fr:2},{f:1,s:3,fr:1}], open:[1,2,4,6], muted:[], barre:null },
+  { name:"A7",  fingers:[{f:1,s:4,fr:2},{f:3,s:2,fr:2}], open:[1,3,5], muted:[6], barre:null },
+  { name:"Bm",  fingers:[{f:"B",s:"1-5",fr:2},{f:3,s:4,fr:4},{f:4,s:3,fr:4},{f:2,s:2,fr:3}], open:[], muted:[6], barre:{fret:2,from:1,to:5} },
+];
+
+const $ = (id) => document.getElementById(id);
+const M = window.MicChordMatch;
+
+/* ── ① 合成音での自己テスト ── */
+$('btn-selftest').onclick = async () => {
+  $('selftest-status').textContent = '実行中…';
+  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+  if (ctx.state === 'suspended') await ctx.resume();
+  const fftSize = parseInt($('fft-size').value, 10);
+  // AudioContext再開直後は最初の数回転が「実際にはまだ音が流れ切っていない」状態になりうる
+  // (2026-08-06の自己テストで最初の数コードだけスコア0.00になる不具合として実際に発生・特定)。
+  // 本番の判定には使わない捨てコードを1回鳴らしてウォームアップしてから本計測に入る。
+  await synthesizeAndAnalyze(ctx, [440], fftSize, 200);
+
+  const rows = [];
+  for (const chord of TEST_CHORDS) {
+    const { db, sampleRate } = await synthesizeAndAnalyze(ctx, M.chordExpectedFreqs(chord), fftSize);
+    const peaks = M.findPeaks(db, sampleRate, fftSize);
+    const maxDb = Math.max(...Array.from(db).filter(isFinite));
+    console.log('[selftest]', chord.name, 'freqs=', M.chordExpectedFreqs(chord), 'maxDb=', maxDb, 'peaks=', peaks);
+    const selfResult = M.matchScore(peaks, chord, TEST_CHORDS);
+    const confusables = M.confusableChords(chord, TEST_CHORDS);
+    const otherResults = confusables.map((c) => ({
+      name: c.chord.name,
+      result: M.matchScore(peaks, c.chord, TEST_CHORDS),
+    }));
+    const pass =
+      selfResult.score >= M.params.matchThreshold &&
+      otherResults.every((o) => o.result.score < M.params.matchThreshold);
+    rows.push({
+      name: chord.name,
+      confusableName: otherResults.map((o) => o.name).join('/') || '(なし)',
+      selfScore: selfResult.score,
+      otherScore: otherResults.length
+        ? Math.max(...otherResults.map((o) => o.result.score))
+        : null,
+      pass,
+    });
+  }
+  await ctx.close();
+  renderSelfTest(rows);
+};
+
+function renderSelfTest(rows) {
+  const body = $('selftest-body');
+  body.innerHTML = '';
+  let okCount = 0;
+  rows.forEach((r) => {
+    if (r.pass) okCount++;
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      `<td>${r.name}</td>` +
+      `<td>${r.selfScore.toFixed(2)}</td>` +
+      `<td>${r.confusableName} = ${r.otherScore != null ? r.otherScore.toFixed(2) : '—'}</td>` +
+      `<td class="${r.pass ? 'ok' : 'ng'}">${r.pass ? '◯' : '✕'}</td>`;
+    body.appendChild(tr);
+  });
+  $('selftest-table').style.display = '';
+  $('selftest-status').textContent = `${okCount}/${rows.length} 件が期待通りにスコアが分かれた`;
+}
+
+// 与えた周波数群をノコギリ波(倍音を含む、実弦に近づけるため)で合成し、一時的なAnalyserNodeで
+// 解析してdBスペクトルを返す。destinationには繋がない(音を出す必要がないため)。
+function synthesizeAndAnalyze(ctx, freqs, fftSize, waitMs) {
+  waitMs = waitMs != null ? waitMs : 150;
+  return new Promise((resolve) => {
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = fftSize;
+    analyser.smoothingTimeConstant = 0;
+    const oscs = freqs.map((f) => {
+      const o = ctx.createOscillator();
+      o.type = 'sawtooth';
+      o.frequency.value = f;
+      const g = ctx.createGain();
+      g.gain.value = 1 / freqs.length;
+      o.connect(g);
+      g.connect(analyser);
+      o.start();
+      return o;
+    });
+    const read = (retriesLeft) => {
+      const db = new Float32Array(analyser.frequencyBinCount);
+      analyser.getFloatFrequencyData(db);
+      const gotSignal = Array.from(db).some((v) => isFinite(v));
+      // 稀に、直前のノードの切断とこのAnalyserNodeへの初回描画がタイミング的にすれ違い、
+      // 全binが-Infinity(無音)のまま読めてしまうことがある(2026-08-06に自己テストで実際に
+      // 発生・特定)。全binが無音ならもう少し待って読み直す。
+      if (!gotSignal && retriesLeft > 0) {
+        setTimeout(() => read(retriesLeft - 1), 80);
+        return;
+      }
+      oscs.forEach((o) => o.stop());
+      analyser.disconnect();
+      resolve({ db, sampleRate: ctx.sampleRate });
+    };
+    setTimeout(() => read(3), waitMs);
+  });
+}
+
+/* ── ② 実マイクでライブ判定 ── */
+const sel = $('target-chord');
+TEST_CHORDS.forEach((c) => {
+  const opt = document.createElement('option');
+  opt.value = c.name;
+  opt.textContent = c.name;
+  sel.appendChild(opt);
+});
+
+let micCtx = null, micStream = null, micAnalyser = null, micLoop = null;
+
+$('btn-mic-start').onclick = async () => {
+  try {
+    micStream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+    });
+  } catch (e) {
+    $('mic-status').textContent = 'マイクを使用できませんでした: ' + e.message;
+    return;
+  }
+  micCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (micCtx.state === 'suspended') await micCtx.resume();
+  const src = micCtx.createMediaStreamSource(micStream);
+  micAnalyser = micCtx.createAnalyser();
+  micAnalyser.fftSize = parseInt($('fft-size').value, 10);
+  micAnalyser.smoothingTimeConstant = 0; // 単発スナップショット用途なので時間平滑化はしない
+  src.connect(micAnalyser);
+  $('btn-mic-start').disabled = true;
+  $('btn-mic-stop').disabled = false;
+  $('mic-status').textContent = 'マイク動作中…コードを弾いてください';
+  micLoop = setInterval(updateLive, 150);
+};
+
+$('btn-mic-stop').onclick = () => {
+  if (micLoop) clearInterval(micLoop);
+  if (micStream) micStream.getTracks().forEach((t) => t.stop());
+  if (micCtx) micCtx.close();
+  micCtx = micStream = micAnalyser = micLoop = null;
+  $('btn-mic-start').disabled = false;
+  $('btn-mic-stop').disabled = true;
+  $('mic-status').textContent = 'マイク停止中';
+  $('score-display').textContent = '—';
+  $('score-display').className = 'big-score';
+};
+
+function updateLive() {
+  if (!micAnalyser) return;
+  const chordName = sel.value;
+  const chord = TEST_CHORDS.find((c) => c.name === chordName);
+  const db = new Float32Array(micAnalyser.frequencyBinCount);
+  micAnalyser.getFloatFrequencyData(db);
+  const peaks = M.findPeaks(db, micCtx.sampleRate, micAnalyser.fftSize);
+  const result = M.matchScore(peaks, chord, TEST_CHORDS);
+
+  const disp = $('score-display');
+  disp.textContent = result.score.toFixed(2);
+  disp.className = 'big-score ' + (result.score >= M.params.matchThreshold ? 'pass' : 'fail');
+  $('bar-pos').style.width = Math.round(result.positiveRatio * 100) + '%';
+  $('bar-neg').style.width = Math.round(result.negativeRatio * 100) + '%';
+  $('confusable-info').textContent = result.confusable
+    ? `一番紛らわしい候補: ${result.confusable.chord.name}(重なり ${(result.confusable.overlapRatio * 100).toFixed(0)}%)`
+    : '';
+  $('peaks-display').textContent = peaks
+    .slice()
+    .sort((a, b) => b.db - a.db)
+    .slice(0, 8)
+    .map((p) => `${p.freq.toFixed(1)}Hz  ${p.db.toFixed(1)}dB`)
+    .join('\n');
+}
+
+/* ── ③ パラメータ調整UI ── */
+const PARAM_DEFS = [
+  { key: 'baseCentsTolerance', min: 5, max: 100, step: 1, label: '周波数許容誤差(セント)' },
+  { key: 'harmonicToleranceGrowth', min: 0, max: 2, step: 0.1, label: '倍音次数ごとの許容誤差拡大' },
+  { key: 'peakFloorRelDb', min: 10, max: 80, step: 1, label: 'ピーク検出しきい値(最大からの相対dB)' },
+  { key: 'negativePenalty', min: 0, max: 3, step: 0.1, label: '陰性証拠のペナルティ係数' },
+  { key: 'minCoverageFraction', min: 0, max: 1, step: 0.05, label: 'カバレッジ最低ライン(7th等の抜け検出)' },
+  { key: 'coveragePenaltyWeight', min: 0, max: 8, step: 0.5, label: 'カバレッジ不足のペナルティの強さ' },
+  { key: 'matchThreshold', min: 0, max: 1, step: 0.01, label: '合格しきい値' },
+];
+const container = $('params-container');
+PARAM_DEFS.forEach((def) => {
+  const row = document.createElement('div');
+  row.className = 'param-row';
+  row.innerHTML =
+    `<div>${def.label}<br><input type="range" min="${def.min}" max="${def.max}" step="${def.step}" value="${M.params[def.key]}"></div>` +
+    `<div class="val">${M.params[def.key]}</div>`;
+  const input = row.querySelector('input');
+  const val = row.querySelector('.val');
+  input.oninput = () => {
+    M.params[def.key] = parseFloat(input.value);
+    val.textContent = input.value;
+  };
+  container.appendChild(row);
+});
+
+$('fft-size').onchange = () => {
+  if (micAnalyser) micAnalyser.fftSize = parseInt($('fft-size').value, 10);
+};
+</script>
+</body>
+</html>

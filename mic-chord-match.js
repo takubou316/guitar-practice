@@ -1,0 +1,247 @@
+/* ── mic-chord-match.js ──────────────────────────────────────────────
+ * マイクで弾いたコードを判定するための純粋ロジック(DOM操作・AudioContext生成なし)。
+ * index.html の ALL_CHORDS と同じ形({fingers,open,muted,barre})のコードオブジェクトを
+ * 受け取って動く。mic-debug.html(実験・実機調整用) と、将来的に index.html 本体の
+ * どちらからも読み込んで使う共通ロジック。
+ *
+ * 設計の背景・文献調査・リスク一覧は Obsidian Vault の
+ * 作業日記\01 ギター練習ツール\プラン\2026-08-06_マイク自動判定機能_再設計ロードマップ.md を参照。
+ * 旧実装(音名だけに丸めるクロマベクトル方式)は当たり外れが不安定で2026-07-31に削除済み。
+ * このファイルは「弦ごとの実周波数(オクターブ込み)＋倍音畳み込み＋紛らわしいコードとの
+ * 陰性証拠」という新方式の実装。
+ * ──────────────────────────────────────────────────────────────────── */
+(function (global) {
+  'use strict';
+
+  // 開放弦(1-6弦=e,B,G,D,A,E)の基準周波数(Hz)。標準チューニング(A4=440Hz)。
+  const OPEN_STRING_FREQ = [null, 329.63, 246.94, 196.0, 146.83, 110.0, 82.41];
+
+  // 実機調整用の可変パラメータ。mic-debug.html のスライダーから上書きされる想定なので
+  // オブジェクトの参照を直接いじれるようにしている(再代入ではなくプロパティ変更で使う)。
+  const params = {
+    minFreq: 70,
+    maxFreq: 1200,
+    peakFloorRelDb: 45, // 範囲内最大ピークよりこの値(dB)以上低いピークは無視
+    peakFloorAbsDb: -85, // 絶対的な下限(無音・環境ノイズの遮断)
+    baseCentsTolerance: 35, // 基音の周波数許容誤差(セント)。ナイロン弦はチューニングが
+    // 安定しにくいため広めに設定してある
+    harmonicToleranceGrowth: 0.6, // 倍音次数が上がるごとに許容誤差を広げる係数
+    // (実弦の倍音は整数倍からわずかにシャープにズレる=インハーモニシティの対策)
+    harmonicWeights: [1, 0.6, 0.35, 0.2], // 基音・2倍音・3倍音・4倍音への重み
+    negativePenalty: 1.8, // 紛らわしいコードの差分音エネルギーへのペナルティ係数
+    // (2026-08-06の自己テストで、平行調の混同を十分抑えるには初期値1.0では弱いと判明し調整)
+    minCoverageFraction: 0.35, // 各ターゲット音が「均等に鳴っていた場合の取り分(1/音数)」の
+    // 何割以上を持っていれば「その音は鳴っている」とみなすか。7thコード(例: E7)がベースの
+    // 三和音(E)を含む部分集合関係にあるため、紛らわしいコードとの差分だけでは
+    // 「必要な音の一部が欠けている」ことを検出できない穴が2026-08-06の自己テストで判明
+    // (E7はEの音を全部含むため差分音がゼロになり、Eを弾いただけでもE7判定にある程度乗ってしまう)。
+    // このカバレッジ判定でその穴を塞ぐ。
+    coveragePenaltyWeight: 3, // 上記の網羅率不足へのペナルティの強さ
+    matchThreshold: 0.5, // この値以上で「合格」
+  };
+
+  function centsDiff(f1, f2) {
+    return 1200 * Math.log2(f1 / f2);
+  }
+  function dbToLinear(db) {
+    return isFinite(db) ? Math.pow(10, db / 20) : 0;
+  }
+  function freqToPitchClass(freq) {
+    const midi = 69 + 12 * Math.log2(freq / 440);
+    return ((Math.round(midi) % 12) + 12) % 12;
+  }
+
+  // コードデータ(fingers/open/barre)から、実際に鳴るはずの「弦ごとの基音周波数」を機械的に
+  // 算出する。バレーの範囲内でも別の指で押さえ直されている弦(fingersに個別エントリがある弦)は
+  // 実際にはその指のフレットの音が鳴るため、バレー側の計算から除外する
+  // (旧実装で発見・修正した「バレーの音名が重複して残る」バグと同じ考慮)。
+  function chordExpectedFreqs(chord) {
+    const freqs = [];
+    const overridden = new Set(chord.fingers.filter((fi) => fi.f !== 'B').map((fi) => fi.s));
+    (chord.open || []).forEach((s) => freqs.push(OPEN_STRING_FREQ[s]));
+    if (chord.barre) {
+      for (let s = chord.barre.from; s <= chord.barre.to; s++) {
+        if (overridden.has(s)) continue;
+        freqs.push(OPEN_STRING_FREQ[s] * Math.pow(2, chord.barre.fret / 12));
+      }
+    }
+    chord.fingers.forEach((fi) => {
+      if (fi.f === 'B') return;
+      freqs.push(OPEN_STRING_FREQ[fi.s] * Math.pow(2, fi.fr / 12));
+    });
+    return freqs;
+  }
+
+  function chordPitchClassSet(chord) {
+    const set = new Set();
+    chordExpectedFreqs(chord).forEach((f) => set.add(freqToPitchClass(f)));
+    return set;
+  }
+
+  // dB値の配列(AnalyserNode.getFloatFrequencyData()の出力)からスペクトルのピーク(局所的な山)を
+  // 検出し、放物線補間(QIFFT)でbin幅以上の周波数精度を安く得る。全帯域を生合算していた旧実装と
+  // 違い、ピック音・環境音のような「山になっていない広帯域成分」に強い。
+  function findPeaks(dbArray, sampleRate, fftSize, opts) {
+    opts = opts || {};
+    const minFreq = opts.minFreq != null ? opts.minFreq : params.minFreq;
+    const maxFreq = opts.maxFreq != null ? opts.maxFreq : params.maxFreq;
+    const len = dbArray.length;
+    const iLo = Math.max(1, Math.floor((minFreq * fftSize) / sampleRate));
+    const iHi = Math.min(len - 2, Math.ceil((maxFreq * fftSize) / sampleRate));
+    let maxDb = -Infinity;
+    for (let i = iLo; i <= iHi; i++) {
+      if (isFinite(dbArray[i]) && dbArray[i] > maxDb) maxDb = dbArray[i];
+    }
+    const floor = Math.max(params.peakFloorAbsDb, maxDb - params.peakFloorRelDb);
+    const peaks = [];
+    for (let i = iLo; i <= iHi; i++) {
+      const b = dbArray[i];
+      if (!isFinite(b) || b < floor) continue;
+      const a = isFinite(dbArray[i - 1]) ? dbArray[i - 1] : b - 60;
+      const c = isFinite(dbArray[i + 1]) ? dbArray[i + 1] : b - 60;
+      if (b < a || b < c) continue; // 局所的な山(3点の中央が一番高い)でなければ棄却
+      const denom = a - 2 * b + c;
+      const p = denom !== 0 ? 0.5 * ((a - c) / denom) : 0;
+      const freq = (sampleRate / fftSize) * (i + p);
+      const peakDb = b - 0.25 * (a - c) * p; // 放物線補間による推定ピーク高さ
+      peaks.push({ freq, db: peakDb });
+    }
+    return peaks;
+  }
+
+  // ターゲット周波数(基音)について、倍音(最大4倍音、harmonicWeightsの数だけ)を重み付きで
+  // 畳み込んだ「証拠エネルギー」を返す。次数が上がるほど許容誤差を広げるのは、実弦の倍音が
+  // 整数倍から徐々にシャープにズレていく物理特性(インハーモニシティ)に対応するため。
+  function targetEvidence(targetFreq, peaks) {
+    let evidence = 0;
+    params.harmonicWeights.forEach((w, h) => {
+      const harmonicFreq = targetFreq * (h + 1);
+      const tolerance = params.baseCentsTolerance * (1 + h * params.harmonicToleranceGrowth);
+      let best = null;
+      peaks.forEach((pk) => {
+        const d = Math.abs(centsDiff(pk.freq, harmonicFreq));
+        if (d <= tolerance && (!best || pk.db > best.db)) best = pk;
+      });
+      if (best) evidence += w * dbToLinear(best.db);
+    });
+    return evidence;
+  }
+
+  // chordに対して紛らわしい(ピッチクラスの重なりが大きい)コードをallChordsから自動算出する。
+  // 手作業の「紛らわしいペア」データは持たず、既存のコードデータから機械的に導出する
+  // (Am⇔C、Em⇔G、Dm⇔Fのような平行調のペアが自動的に見つかる)。
+  // 同点で複数の候補がある場合(例: Amに対してAとCが同率で紛らわしい)、1件だけ選ぶと
+  // 「たまたま先に見つかった方」としか比較できず、もう一方との混同を見逃す
+  // (自己テストで実際に発生を確認済み、2026-08-06)。そのため margin 以内の同率候補は
+  // 全部まとめて返す。
+  function confusableChords(chord, allChords, opts) {
+    opts = opts || {};
+    const margin = opts.margin != null ? opts.margin : 0.001;
+    const pcs = chordPitchClassSet(chord);
+    const scored = [];
+    allChords.forEach((other) => {
+      if (other === chord || other.name === chord.name) return;
+      const otherPcs = chordPitchClassSet(other);
+      let overlap = 0;
+      otherPcs.forEach((pc) => {
+        if (pcs.has(pc)) overlap++;
+      });
+      const ratio = overlap / Math.max(pcs.size, otherPcs.size, 1);
+      scored.push({ chord: other, overlapRatio: ratio });
+    });
+    if (!scored.length) return [];
+    scored.sort((a, b) => b.overlapRatio - a.overlapRatio);
+    const best = scored[0].overlapRatio;
+    return scored.filter((s) => s.overlapRatio >= best - margin);
+  }
+
+  // 後方互換・表示用: 一番紛らわしい候補を1件だけ返す(同点の場合は先頭のもの)。
+  function mostConfusableChord(chord, allChords) {
+    const list = confusableChords(chord, allChords);
+    return list.length ? list[0] : null;
+  }
+
+  // 弾いた音のピーク一覧と、判定したいコード・比較候補プールから一致スコア(0〜1目安)を算出する。
+  // 「陽性証拠(期待する音がどれだけ鳴っているか)」から「陰性証拠(紛らわしいコード群との
+  // 差分音=そのコードだと分かる決め手の音がどれだけ鳴っているか)」を引く形にすることで、
+  // 平行調の混同(旧実装最大の弱点)を構造的に防ぐ。紛らわしい候補が同点で複数ある場合は
+  // その全員分の決め手の音をまとめてチェックする(1件だけだと見逃しが起きるため)。
+  function matchScore(peaks, chord, allChords) {
+    const totalPeakEnergy = peaks.reduce((s, pk) => s + dbToLinear(pk.db), 0);
+    const targets = chordExpectedFreqs(chord);
+    const positiveEvidence = targets.reduce((s, f) => s + targetEvidence(f, peaks), 0);
+
+    let negativeEvidence = 0;
+    let confusables = [];
+    if (allChords && allChords.length) {
+      confusables = confusableChords(chord, allChords);
+      if (confusables.length) {
+        const chordPcs = chordPitchClassSet(chord);
+        // 複数の紛らわしい候補の「決め手の音」をピッチクラス単位で重複なく集める
+        const telltale = new Map(); // pitchClass -> freq
+        confusables.forEach(({ chord: other }) => {
+          chordExpectedFreqs(other).forEach((f) => {
+            const pc = freqToPitchClass(f);
+            if (!chordPcs.has(pc) && !telltale.has(pc)) telltale.set(pc, f);
+          });
+        });
+        negativeEvidence = Array.from(telltale.values()).reduce(
+          (s, f) => s + targetEvidence(f, peaks),
+          0
+        );
+      }
+    }
+
+    const confusable = confusables.length ? confusables[0] : null;
+    if (totalPeakEnergy <= 0) {
+      return {
+        score: 0,
+        positiveRatio: 0,
+        negativeRatio: 0,
+        coveragePenalty: 0,
+        confusable,
+        confusableCount: confusables.length,
+      };
+    }
+    const positiveRatio = Math.min(1, positiveEvidence / totalPeakEnergy);
+    const negativeRatio = Math.min(1, negativeEvidence / totalPeakEnergy);
+
+    // カバレッジチェック: 「紛らわしいコードとの差分」だけでは、7thコードのように
+    // 自分がベースの三和音を丸ごと含む(=差分がない)関係を検出できない
+    // (2026-08-06の自己テストでE7がE単体の音にも部分点を出す穴として発見)。
+    // ターゲット音の中で一番鳴っていない音の取り分が低すぎたら減点する。
+    const shares = targets.map((f) => targetEvidence(f, peaks) / totalPeakEnergy);
+    const weakestShare = shares.length ? Math.min(...shares) : 0;
+    const expectedMinShare = (1 / Math.max(targets.length, 1)) * params.minCoverageFraction;
+    const coveragePenalty =
+      weakestShare < expectedMinShare
+        ? (expectedMinShare - weakestShare) * params.coveragePenaltyWeight
+        : 0;
+
+    const score = Math.max(
+      0,
+      positiveRatio - params.negativePenalty * negativeRatio - coveragePenalty
+    );
+    return {
+      score,
+      positiveRatio,
+      negativeRatio,
+      coveragePenalty,
+      confusable,
+      confusableCount: confusables.length,
+    };
+  }
+
+  global.MicChordMatch = {
+    params,
+    OPEN_STRING_FREQ,
+    chordExpectedFreqs,
+    chordPitchClassSet,
+    freqToPitchClass,
+    findPeaks,
+    targetEvidence,
+    mostConfusableChord,
+    confusableChords,
+    matchScore,
+  };
+})(window);
