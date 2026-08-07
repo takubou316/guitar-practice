@@ -397,6 +397,13 @@ function autoTick() {
     if (now > autoJudgeEndAt) {
       autoJudging = false;
       autoPassStreak = 0;
+      // 【バグ修正 2026-08-07】判定中・クールダウン中はbaselineを更新していなかったため、
+      // 判定サイクルが終わっても弾く前の「静かな時」の値のままだった。弾いたコードの余韻が
+      // まだ鳴っている状態でここに戻ると、それだけで次のオンセットとして誤検出し、同じ1回の
+      // ストロークの減衰中に判定サイクルを繰り返して「進まない」ように見える不具合があった
+      // (Gのような余韻の大きいコードで顕著)。ここで現在のRMSにbaselineを合わせ直すことで、
+      // 「今の(まだ鳴っている)音量」を基準にし、本当に新しく弾いた時だけ反応するようにする。
+      autoBaseline = Math.max(autoBaseline, onsetRMS());
       setProgressStatus('🎤 タイムアウト、もう一度弾いてみてください: ' + sel.value);
       return;
     }
@@ -412,6 +419,7 @@ function autoTick() {
         autoJudging = false;
         autoPassStreak = 0;
         autoCooldownUntil = now + COOLDOWN_MS;
+        autoBaseline = Math.max(autoBaseline, onsetRMS()); // 同上の理由でここでも合わせ直す
         setProgressStatus(`✓ 正解！(スコア${result.score.toFixed(2)}) 次のコードへ`);
         setTimeout(advanceAutoChord, 900);
       }
