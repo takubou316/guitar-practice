@@ -31,12 +31,11 @@
     negativePenalty: 1.8, // 紛らわしいコードの差分音エネルギーへのペナルティ係数
     // (2026-08-06の自己テストで、平行調の混同を十分抑えるには初期値1.0では弱いと判明し調整)
     minCoverageFraction: 0.35, // 各ターゲット音が「均等に鳴っていた場合の取り分(1/音数)」の
-    // 何割以上を持っていれば「その音は鳴っている」とみなすか。7thコード(例: E7)がベースの
-    // 三和音(E)を含む部分集合関係にあるため、紛らわしいコードとの差分だけでは
-    // 「必要な音の一部が欠けている」ことを検出できない穴が2026-08-06の自己テストで判明
-    // (E7はEの音を全部含むため差分音がゼロになり、Eを弾いただけでもE7判定にある程度乗ってしまう)。
-    // このカバレッジ判定でその穴を塞ぐ。
-    coveragePenaltyWeight: 3, // 上記の網羅率不足へのペナルティの強さ
+    // 何割以上を持っていれば「その音は鳴っている」とみなすか。これを下回る音が1つでもあれば
+    // 他がどれだけ良くてもハードに不合格にする(2026-08-07: Amの2弦をミュートしたまま弾いても
+    // 残り4音で合格してしまうバグを実機テストで発見し、ソフトな減点からハードな足切りに変更)。
+    // 7thコード(例: E7)がベースの三和音(E)を含む部分集合関係にあるため、紛らわしいコードとの
+    // 差分だけでは検出できない「音の欠け」もこれで拾える(2026-08-06の自己テストで発見した穴)。
     matchThreshold: 0.5, // この値以上で「合格」
   };
 
@@ -198,7 +197,8 @@
         score: 0,
         positiveRatio: 0,
         negativeRatio: 0,
-        coveragePenalty: 0,
+        missingNote: true,
+        weakestShare: 0,
         confusable,
         confusableCount: confusables.length,
       };
@@ -209,24 +209,25 @@
     // カバレッジチェック: 「紛らわしいコードとの差分」だけでは、7thコードのように
     // 自分がベースの三和音を丸ごと含む(=差分がない)関係を検出できない
     // (2026-08-06の自己テストでE7がE単体の音にも部分点を出す穴として発見)。
-    // ターゲット音の中で一番鳴っていない音の取り分が低すぎたら減点する。
+    // さらに2026-08-07の実機テストで、Amの2弦(本来1フレットを押さえるべき)を弾かず
+    // ミュートしたまま弾いても、残り4音が強く鳴っていれば合格してしまうことが判明した。
+    // このアプリの目的は「全部の指が正しく押さえられているか」の確認なので、1音でも
+    // 期待した取り分を大きく下回っているなら、他がどれだけ良くてもハードに不合格にする
+    // (ソフトな減点だと、4/5音が強ければ1音の欠落を帳消しにできてしまっていた)。
     const shares = targets.map((f) => targetEvidence(f, peaks) / totalPeakEnergy);
     const weakestShare = shares.length ? Math.min(...shares) : 0;
     const expectedMinShare = (1 / Math.max(targets.length, 1)) * params.minCoverageFraction;
-    const coveragePenalty =
-      weakestShare < expectedMinShare
-        ? (expectedMinShare - weakestShare) * params.coveragePenaltyWeight
-        : 0;
+    const missingNote = weakestShare < expectedMinShare;
 
-    const score = Math.max(
-      0,
-      positiveRatio - params.negativePenalty * negativeRatio - coveragePenalty
-    );
+    const score = missingNote
+      ? 0
+      : Math.max(0, positiveRatio - params.negativePenalty * negativeRatio);
     return {
       score,
       positiveRatio,
       negativeRatio,
-      coveragePenalty,
+      missingNote,
+      weakestShare,
       confusable,
       confusableCount: confusables.length,
     };

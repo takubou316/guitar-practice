@@ -330,9 +330,12 @@ function updateLive() {
   disp.className = 'big-score ' + (result.score >= M.params.matchThreshold ? 'pass' : 'fail');
   $('bar-pos').style.width = Math.round(result.positiveRatio * 100) + '%';
   $('bar-neg').style.width = Math.round(result.negativeRatio * 100) + '%';
-  $('confusable-info').textContent = result.confusable
+  const confusableText = result.confusable
     ? `一番紛らわしい候補: ${result.confusable.chord.name}(重なり ${(result.confusable.overlapRatio * 100).toFixed(0)}%)`
     : '';
+  $('confusable-info').textContent = result.missingNote
+    ? `⚠ 鳴っていない音がある(取り分${(result.weakestShare * 100).toFixed(0)}%) ${confusableText}`
+    : confusableText;
   $('peaks-display').textContent = peaks
     .slice()
     .sort((a, b) => b.db - a.db)
@@ -348,14 +351,16 @@ function updateLive() {
    ストローク(急な音量上昇)・指弾き(緩やかな立ち上がり)どちらでも、しきい値を"超えた瞬間"を
    見るレベル検出なので両対応できるはず、という設計目論見も合わせて検証する。 */
 const ONSET_RATIO = 2.5, ONSET_MIN = 0.05, ONSET_BASELINE_ALPHA = 0.05;
-const SETTLE_MS = 100; // ストラム直後、アタック音が落ち着くまで待つ時間
+const SETTLE_MS = 180; // ストラム直後、アタック音が落ち着くまで待つ時間
 const JUDGE_WINDOW_MS = 1500; // この時間内にスコアがしきい値を超えたら合格とする(超えなければタイムアウト)
 const COOLDOWN_MS = 300; // 1回の判定サイクルの後、次のオンセットを検出し始めるまでの不応期
 // 「弾いたときに若干間違ってるのに進む」(2026-08-07の実機テストで発覚)への対策:
 // 1回でもしきい値を超えた瞬間に即合格にしていたため、余韻やノイズによる一瞬のスコアの
 // 跳ねだけで誤って合格になっていた。「迷ったら不合格側に倒す」方針(ロードマップC節)に沿って、
-// 連続でこの回数(×40ms=約120ms)しきい値を超え続けて初めて合格とする。
-const REQUIRED_PASS_STREAK = 3;
+// 連続でこの回数(×40ms)しきい値を超え続けて初めて合格とする。
+// あわせて「判定が速すぎて、ちゃんと確認してくれてる感じがしない」という体感面の指摘
+// (2026-08-07)も踏まえ、3→5(約200ms)に増やして少し「間」を感じられるようにした。
+const REQUIRED_PASS_STREAK = 5;
 let autoBaseline = 0.02, autoCooldownUntil = 0, autoJudging = false, autoJudgeEndAt = 0, autoPassStreak = 0;
 
 function resetAutoState() {
@@ -408,7 +413,7 @@ function autoTick() {
         autoPassStreak = 0;
         autoCooldownUntil = now + COOLDOWN_MS;
         setProgressStatus(`✓ 正解！(スコア${result.score.toFixed(2)}) 次のコードへ`);
-        setTimeout(advanceAutoChord, 600);
+        setTimeout(advanceAutoChord, 900);
       }
     } else {
       autoPassStreak = 0; // 連続性が途切れたら最初からやり直し(ノイズの一瞬の跳ねを弾くため)
@@ -445,8 +450,7 @@ const PARAM_DEFS = [
   { key: 'harmonicToleranceGrowth', min: 0, max: 2, step: 0.1, label: '倍音次数ごとの許容誤差拡大' },
   { key: 'peakFloorRelDb', min: 10, max: 80, step: 1, label: 'ピーク検出しきい値(最大からの相対dB)' },
   { key: 'negativePenalty', min: 0, max: 3, step: 0.1, label: '陰性証拠のペナルティ係数' },
-  { key: 'minCoverageFraction', min: 0, max: 1, step: 0.05, label: 'カバレッジ最低ライン(7th等の抜け検出)' },
-  { key: 'coveragePenaltyWeight', min: 0, max: 8, step: 0.5, label: 'カバレッジ不足のペナルティの強さ' },
+  { key: 'minCoverageFraction', min: 0, max: 1, step: 0.05, label: 'カバレッジ最低ライン(下回る音が1つでもあれば即不合格)' },
   { key: 'matchThreshold', min: 0, max: 1, step: 0.01, label: '合格しきい値' },
 ];
 const container = $('params-container');
