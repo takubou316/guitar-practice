@@ -351,12 +351,18 @@ const ONSET_RATIO = 2.5, ONSET_MIN = 0.05, ONSET_BASELINE_ALPHA = 0.05;
 const SETTLE_MS = 100; // ストラム直後、アタック音が落ち着くまで待つ時間
 const JUDGE_WINDOW_MS = 1500; // この時間内にスコアがしきい値を超えたら合格とする(超えなければタイムアウト)
 const COOLDOWN_MS = 300; // 1回の判定サイクルの後、次のオンセットを検出し始めるまでの不応期
-let autoBaseline = 0.02, autoCooldownUntil = 0, autoJudging = false, autoJudgeEndAt = 0;
+// 「弾いたときに若干間違ってるのに進む」(2026-08-07の実機テストで発覚)への対策:
+// 1回でもしきい値を超えた瞬間に即合格にしていたため、余韻やノイズによる一瞬のスコアの
+// 跳ねだけで誤って合格になっていた。「迷ったら不合格側に倒す」方針(ロードマップC節)に沿って、
+// 連続でこの回数(×40ms=約120ms)しきい値を超え続けて初めて合格とする。
+const REQUIRED_PASS_STREAK = 3;
+let autoBaseline = 0.02, autoCooldownUntil = 0, autoJudging = false, autoJudgeEndAt = 0, autoPassStreak = 0;
 
 function resetAutoState() {
   autoBaseline = 0.02;
   autoCooldownUntil = 0;
   autoJudging = false;
+  autoPassStreak = 0;
   if ($('auto-mode').checked) {
     setProgressStatus('🎤 待機中: ' + sel.value + ' を弾いてください');
   }
@@ -385,6 +391,7 @@ function autoTick() {
   if (autoJudging) {
     if (now > autoJudgeEndAt) {
       autoJudging = false;
+      autoPassStreak = 0;
       setProgressStatus('🎤 タイムアウト、もう一度弾いてみてください: ' + sel.value);
       return;
     }
@@ -394,10 +401,17 @@ function autoTick() {
     const peaks = M.findPeaks(db, micCtx.sampleRate, micAnalyser.fftSize);
     const result = M.matchScore(peaks, chord, TEST_CHORDS);
     if (result.score >= M.params.matchThreshold) {
-      autoJudging = false;
-      autoCooldownUntil = now + COOLDOWN_MS;
-      setProgressStatus(`✓ 正解！(スコア${result.score.toFixed(2)}) 次のコードへ`);
-      setTimeout(advanceAutoChord, 600);
+      autoPassStreak++;
+      setProgressStatus(`🎯 判定中… (${autoPassStreak}/${REQUIRED_PASS_STREAK}, スコア${result.score.toFixed(2)})`);
+      if (autoPassStreak >= REQUIRED_PASS_STREAK) {
+        autoJudging = false;
+        autoPassStreak = 0;
+        autoCooldownUntil = now + COOLDOWN_MS;
+        setProgressStatus(`✓ 正解！(スコア${result.score.toFixed(2)}) 次のコードへ`);
+        setTimeout(advanceAutoChord, 600);
+      }
+    } else {
+      autoPassStreak = 0; // 連続性が途切れたら最初からやり直し(ノイズの一瞬の跳ねを弾くため)
     }
     return;
   }
@@ -409,6 +423,7 @@ function autoTick() {
     setProgressStatus('🎯 判定中…');
     setTimeout(() => {
       autoJudging = true;
+      autoPassStreak = 0;
       autoJudgeEndAt = performance.now() + JUDGE_WINDOW_MS;
     }, SETTLE_MS);
   } else {
