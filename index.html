@@ -409,6 +409,10 @@ body.le-prev-on .le-preview-content { display:flex; flex-direction:column; align
 .audio-indicator svg { width: 16px; height: 16px; color: #aaa; display: block; }
 .audio-indicator.muted svg { color: #777; }
 .audio-indicator:active { opacity: 0.55; }
+
+/* ── マイク自動判定の状態表示 ── */
+.mic-status { position: fixed; top: calc(var(--hdr) + 7px); left: 10px; z-index: 40; max-width: 62vw; font-size: 11px; padding: 4px 10px; border-radius: 20px; background: var(--warn-bg); border: 0.5px solid var(--warn-border); color: var(--accent); display: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mic-status.visible { display: block; }
 </style>
 </head>
 <body>
@@ -533,8 +537,12 @@ body.le-prev-on .le-preview-content { display:flex; flex-direction:column; align
     <div class="ftr-spacer"></div>
     <div class="bpm-ftr"><b id="bpm-val">80</b> BPM</div>
     <button class="ctrl-btn" id="play-btn" onclick="toggleMetro()"><span id="play-icon">▶</span></button>
+    <button class="ctrl-btn" id="mic-btn" onclick="toggleMic()">🎤</button>
   </footer>
 </div>
+
+<!-- マイク自動判定の状態表示 -->
+<div class="mic-status" id="mic-status"></div>
 
 <!-- 音声インジケーター -->
 <div class="audio-indicator" id="audio-indicator" onclick="toggleAppMute()">
@@ -605,6 +613,16 @@ body.le-prev-on .le-preview-content { display:flex; flex-direction:column; align
           <span class="sig-btn" id="fret-vert" onclick="setFretOrient(false)">縦</span>
           <span class="sig-btn active" id="fret-horiz" onclick="setFretOrient(true)">横</span>
         </div>
+      </div>
+
+      <div class="s-row">
+        <div class="s-label">🎤 マイク判定の厳しさ</div>
+        <div style="display:flex;gap:6px;">
+          <span class="sig-btn" id="mic-strict-loose" onclick="setMicStrictness(3)">ゆるめ</span>
+          <span class="sig-btn active" id="mic-strict-normal" onclick="setMicStrictness(5)">標準</span>
+          <span class="sig-btn" id="mic-strict-strict" onclick="setMicStrictness(7)">しっかり</span>
+        </div>
+        <div style="font-size:11px;color:var(--text3);margin-top:4px;">連続で正解の音が鳴り続けている時間の長さ。「ゆるめ」は反応が速い分、判定は甘くなります。</div>
       </div>
 
       <div class="s-row">
@@ -696,6 +714,10 @@ body.le-prev-on .le-preview-content { display:flex; flex-direction:column; align
   <div class="le-hint">ドラッグで移動 ／ 丸ハンドルでリサイズ<span id="le-overlap-warn" class="le-overlap-warn">⚠ 重なりあり</span></div>
 </div>
 
+<!-- マイク判定ロジック本体(DSP部分のみ、UI・状態管理は本体側)。設計方針は
+     作業日記\01 ギター練習ツール\プラン\2026-08-06_マイク自動判定機能_再設計ロードマップ.md 参照。
+     単一ファイル構成の唯一の例外(ビルドステップなしのただの<script src>、依存ライブラリの追加ではない)。 -->
+<script src="mic-chord-match.js"></script>
 <script>
 /* ── コードデータ（26種類）── */
 const ALL_CHORDS = [
@@ -1172,7 +1194,7 @@ function stopMetro(){
   document.getElementById('bar-counter').textContent='';
   unmarkSoon();updateMetroUI();updateAudioIndicator();
 }
-function toggleMetro(){metroOn?stopMetro():startMetro();}
+function toggleMetro(){if(!metroOn&&micOn)return; metroOn?stopMetro():startMetro();}
 // 画面ロック／アプリ切り替えからの復帰時: AudioContextがブラウザにより
 // suspendedにされていることがあるため明示的にresumeし、スケジューラも再同期する
 document.addEventListener('visibilitychange', () => {
@@ -1183,6 +1205,134 @@ document.addEventListener('visibilitychange', () => {
 function updateMetroUI(){
   document.getElementById('play-icon').textContent=metroOn?'■':'▶';
   document.getElementById('play-btn').classList.toggle('playing',metroOn);
+  document.getElementById('mic-btn').disabled=metroOn; // マイク判定とは排他
+}
+
+/* ── マイクで自動判定→自動でnextChord() ──
+   ロジック本体(ピーク検出・放物線補間・倍音畳み込み・紛らわしいコード判定)はmic-chord-match.js。
+   ここには「弾いた瞬間(オンセット)を検出→少し待って判定→合格なら次のコードへ」という
+   状態管理とUI配線だけを置く。設計・実機テストの詳細は
+   作業日記\01 ギター練習ツール\プラン\2026-08-06_マイク自動判定機能_再設計ロードマップ.md 参照。
+   mic-debug.htmlで実機検証済みの設計をそのまま移植している。 */
+let micOn=false, micStream=null, micChromaAnalyser=null, micOnsetAnalyser=null, micSourceNode=null;
+let _micStatusTimer=null;
+function showMicStatus(text){
+  const el=document.getElementById('mic-status');
+  if(!el) return;
+  el.textContent=text;
+  el.classList.toggle('visible',!!text);
+  clearTimeout(_micStatusTimer);
+  if(text) _micStatusTimer=setTimeout(()=>el.classList.remove('visible'),3000);
+}
+const MIC_ONSET_RATIO=2.5, MIC_ONSET_MIN=0.05, MIC_BASELINE_ALPHA=0.05;
+const MIC_SETTLE_MS=180; // ストローク直後、アタック音が落ち着くまで待つ時間
+const MIC_JUDGE_WINDOW_MS=1500; // この時間内に連続でしきい値を超えたら合格(超えなければタイムアウト)
+const MIC_COOLDOWN_MS=300;
+// 「判定の厳しさ」= 連続で合格し続けないといけない回数(×40ms)。実機テストで3回(ゆるめ)と
+// 5回(標準)で体感の難易度差が大きいと分かったため、固定値ではなく設定で選べるようにしてある。
+let micRequiredStreak=5;
+let micBaseline=0.02, micCooldownUntil=0, micJudging=false, micJudgeEndAt=0, micPassStreak=0, micMonitorIv=null;
+
+function setMicStrictness(n){
+  micRequiredStreak=n;
+  document.getElementById('mic-strict-loose').classList.toggle('active',n===3);
+  document.getElementById('mic-strict-normal').classList.toggle('active',n===5);
+  document.getElementById('mic-strict-strict').classList.toggle('active',n===7);
+}
+
+async function startMic(){
+  if(metroOn) return; // 排他: メトロノーム再生中は起動しない
+  let stream;
+  try{
+    stream=await navigator.mediaDevices.getUserMedia({
+      audio:{echoCancellation:false, noiseSuppression:false, autoGainControl:false}
+    });
+  }catch(e){
+    showMicStatus('🎤 マイクを使用できませんでした（許可設定を確認してください）');
+    return;
+  }
+  micStream=stream;
+  const ctx=getCtx();
+  if(ctx.state==='suspended') ctx.resume();
+  micSourceNode=ctx.createMediaStreamSource(micStream);
+  micOnsetAnalyser=ctx.createAnalyser();
+  micOnsetAnalyser.fftSize=512; // 短いバッファで音量変化に素早く反応させる(判定用とは分離)
+  micChromaAnalyser=ctx.createAnalyser();
+  micChromaAnalyser.fftSize=8192;
+  micChromaAnalyser.smoothingTimeConstant=0; // 単発判定用途なので時間平滑化はしない
+  // destinationにはつながない: マイク音をそのまま出力するとハウリングの原因になるため、解析専用の接続にとどめる
+  micSourceNode.connect(micOnsetAnalyser);
+  micSourceNode.connect(micChromaAnalyser);
+  micOn=true;
+  micBaseline=0.02; micCooldownUntil=0; micJudging=false; micPassStreak=0;
+  micMonitorIv=setInterval(micAutoTick,40);
+  showMicStatus('🎤 待機中: '+current.name+' を弾いてください');
+  updateMicUI();
+}
+function stopMic(){
+  if(micMonitorIv){clearInterval(micMonitorIv);micMonitorIv=null;}
+  if(micStream) micStream.getTracks().forEach(t=>t.stop());
+  micStream=null; micOnsetAnalyser=null; micChromaAnalyser=null; micSourceNode=null;
+  micOn=false; micJudging=false; micPassStreak=0;
+  showMicStatus('');
+  updateMicUI();
+}
+function micOnsetRMS(){
+  const buf=new Uint8Array(micOnsetAnalyser.fftSize);
+  micOnsetAnalyser.getByteTimeDomainData(buf);
+  let sum=0;
+  for(let i=0;i<buf.length;i++){ const v=(buf[i]-128)/128; sum+=v*v; }
+  return Math.sqrt(sum/buf.length);
+}
+function micAutoTick(){
+  if(!micOnsetAnalyser||!micChromaAnalyser) return;
+  const now=performance.now();
+
+  if(micJudging){
+    if(now>micJudgeEndAt){
+      micJudging=false; micPassStreak=0;
+      // 判定中・クールダウン中はbaselineを更新していないため、弾いたコードの余韻がまだ鳴っている
+      // 状態でここに戻ると次のオンセットとして誤検出し、同じストロークの減衰中に判定サイクルが
+      // 空回りしてしまう(mic-debug.htmlでの実機テストで発見・修正済みの不具合と同じ対策)。
+      micBaseline=Math.max(micBaseline, micOnsetRMS());
+      showMicStatus('🎤 まだ合ってないみたい…（もう一度弾いてみてください）');
+      return;
+    }
+    const db=new Float32Array(micChromaAnalyser.frequencyBinCount);
+    micChromaAnalyser.getFloatFrequencyData(db);
+    const peaks=MicChordMatch.findPeaks(db, getCtx().sampleRate, micChromaAnalyser.fftSize);
+    const result=MicChordMatch.matchScore(peaks, current, ALL_CHORDS);
+    if(result.score>=MicChordMatch.params.matchThreshold){
+      micPassStreak++;
+      if(micPassStreak>=micRequiredStreak){
+        micJudging=false; micPassStreak=0;
+        micCooldownUntil=now+MIC_COOLDOWN_MS;
+        micBaseline=Math.max(micBaseline, micOnsetRMS());
+        showMicStatus('✓ 正解！次のコードへ');
+        setTimeout(()=>{ nextChord(); if(micOn) showMicStatus('🎤 待機中: '+current.name+' を弾いてください'); }, 900);
+      }
+    } else {
+      micPassStreak=0; // 連続性が途切れたら最初からやり直し(ノイズの一瞬の跳ねを弾くため)
+    }
+    return;
+  }
+
+  if(now<micCooldownUntil) return;
+  const rms=micOnsetRMS();
+  if(rms>Math.max(micBaseline*MIC_ONSET_RATIO, MIC_ONSET_MIN)){
+    micCooldownUntil=now+MIC_SETTLE_MS+MIC_COOLDOWN_MS;
+    setTimeout(()=>{
+      micJudging=true; micPassStreak=0;
+      micJudgeEndAt=performance.now()+MIC_JUDGE_WINDOW_MS;
+    }, MIC_SETTLE_MS);
+  } else {
+    micBaseline=micBaseline*(1-MIC_BASELINE_ALPHA)+rms*MIC_BASELINE_ALPHA;
+  }
+}
+function toggleMic(){ if(!micOn&&metroOn) return; micOn?stopMic():startMic(); }
+function updateMicUI(){
+  document.getElementById('mic-btn').classList.toggle('playing',micOn);
+  document.getElementById('play-btn').disabled=micOn; // メトロノームとは排他
 }
 
 function onBpm(v){bpm=parseInt(v);document.getElementById('bpm-val').textContent=bpm;document.getElementById('bpm-val2').textContent=bpm;}
