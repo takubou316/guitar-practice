@@ -78,6 +78,10 @@
     <button id="btn-mic-start">🎤 マイク開始</button>
     <button id="btn-mic-stop" class="secondary" disabled>停止</button>
   </div>
+  <label class="row" style="font-size:13px;color:#ccc">
+    <input type="checkbox" id="auto-mode" /> 自動進行モード(弾いた瞬間を検出→少し待って判定→合格なら次のコードへ)
+  </label>
+  <div class="status" id="progress-status"></div>
   <div class="status" id="mic-status">マイク停止中</div>
 
   <div class="big-score" id="score-display">—</div>
@@ -267,6 +271,7 @@ sel.onchange = updateChordDesc;
 updateChordDesc();
 
 let micCtx = null, micStream = null, micAnalyser = null, micLoop = null;
+let onsetAnalyser = null, onsetLoop = null;
 
 $('btn-mic-start').onclick = async () => {
   try {
@@ -284,20 +289,29 @@ $('btn-mic-start').onclick = async () => {
   micAnalyser.fftSize = parseInt($('fft-size').value, 10);
   micAnalyser.smoothingTimeConstant = 0; // 単発スナップショット用途なので時間平滑化はしない
   src.connect(micAnalyser);
+  // オンセット(弾いた瞬間)検出用に短いバッファの別Analyserを用意する。反応速度重視のため
+  // コード判定用(micAnalyser)とは分けている(旧実装と同じ理由、CLAUDE.md参照)。
+  onsetAnalyser = micCtx.createAnalyser();
+  onsetAnalyser.fftSize = 512;
+  src.connect(onsetAnalyser);
   $('btn-mic-start').disabled = true;
   $('btn-mic-stop').disabled = false;
   $('mic-status').textContent = 'マイク動作中…コードを弾いてください';
   micLoop = setInterval(updateLive, 150);
+  resetAutoState();
+  onsetLoop = setInterval(autoTick, 40);
 };
 
 $('btn-mic-stop').onclick = () => {
   if (micLoop) clearInterval(micLoop);
+  if (onsetLoop) clearInterval(onsetLoop);
   if (micStream) micStream.getTracks().forEach((t) => t.stop());
   if (micCtx) micCtx.close();
-  micCtx = micStream = micAnalyser = micLoop = null;
+  micCtx = micStream = micAnalyser = micLoop = onsetAnalyser = onsetLoop = null;
   $('btn-mic-start').disabled = false;
   $('btn-mic-stop').disabled = true;
   $('mic-status').textContent = 'マイク停止中';
+  $('progress-status').textContent = '';
   $('score-display').textContent = '—';
   $('score-display').className = 'big-score';
 };
@@ -325,6 +339,89 @@ function updateLive() {
     .slice(0, 8)
     .map((p) => `${p.freq.toFixed(1)}Hz  ${p.db.toFixed(1)}dB`)
     .join('\n');
+}
+
+/* ── 自動進行モード: 弾いた瞬間(オンセット)を検出→少し待って判定→合格なら次のコードへ ──
+   「弾いた瞬間はあってないのに余韻で正解になる」という2026-08-07の実機テストでの指摘を受けて、
+   常時スコアを表示するだけの②とは別に、実際にやりたい「判定して自動で次へ進む」フローそのものを
+   ここで検証する。旧実装(削除済み)と同じくオンセット検出用に短いバッファのAnalyserを分けている。
+   ストローク(急な音量上昇)・指弾き(緩やかな立ち上がり)どちらでも、しきい値を"超えた瞬間"を
+   見るレベル検出なので両対応できるはず、という設計目論見も合わせて検証する。 */
+const ONSET_RATIO = 2.5, ONSET_MIN = 0.05, ONSET_BASELINE_ALPHA = 0.05;
+const SETTLE_MS = 100; // ストラム直後、アタック音が落ち着くまで待つ時間
+const JUDGE_WINDOW_MS = 1500; // この時間内にスコアがしきい値を超えたら合格とする(超えなければタイムアウト)
+const COOLDOWN_MS = 300; // 1回の判定サイクルの後、次のオンセットを検出し始めるまでの不応期
+let autoBaseline = 0.02, autoCooldownUntil = 0, autoJudging = false, autoJudgeEndAt = 0;
+
+function resetAutoState() {
+  autoBaseline = 0.02;
+  autoCooldownUntil = 0;
+  autoJudging = false;
+  if ($('auto-mode').checked) {
+    setProgressStatus('🎤 待機中: ' + sel.value + ' を弾いてください');
+  }
+}
+$('auto-mode').onchange = resetAutoState;
+
+function setProgressStatus(text) {
+  $('progress-status').textContent = text;
+}
+
+function onsetRMS() {
+  const buf = new Uint8Array(onsetAnalyser.fftSize);
+  onsetAnalyser.getByteTimeDomainData(buf);
+  let sum = 0;
+  for (let i = 0; i < buf.length; i++) {
+    const v = (buf[i] - 128) / 128;
+    sum += v * v;
+  }
+  return Math.sqrt(sum / buf.length);
+}
+
+function autoTick() {
+  if (!onsetAnalyser || !micAnalyser || !$('auto-mode').checked) return;
+  const now = performance.now();
+
+  if (autoJudging) {
+    if (now > autoJudgeEndAt) {
+      autoJudging = false;
+      setProgressStatus('🎤 タイムアウト、もう一度弾いてみてください: ' + sel.value);
+      return;
+    }
+    const chord = TEST_CHORDS.find((c) => c.name === sel.value);
+    const db = new Float32Array(micAnalyser.frequencyBinCount);
+    micAnalyser.getFloatFrequencyData(db);
+    const peaks = M.findPeaks(db, micCtx.sampleRate, micAnalyser.fftSize);
+    const result = M.matchScore(peaks, chord, TEST_CHORDS);
+    if (result.score >= M.params.matchThreshold) {
+      autoJudging = false;
+      autoCooldownUntil = now + COOLDOWN_MS;
+      setProgressStatus(`✓ 正解！(スコア${result.score.toFixed(2)}) 次のコードへ`);
+      setTimeout(advanceAutoChord, 600);
+    }
+    return;
+  }
+
+  if (now < autoCooldownUntil) return;
+  const rms = onsetRMS();
+  if (rms > Math.max(autoBaseline * ONSET_RATIO, ONSET_MIN)) {
+    autoCooldownUntil = now + SETTLE_MS + COOLDOWN_MS;
+    setProgressStatus('🎯 判定中…');
+    setTimeout(() => {
+      autoJudging = true;
+      autoJudgeEndAt = performance.now() + JUDGE_WINDOW_MS;
+    }, SETTLE_MS);
+  } else {
+    autoBaseline = autoBaseline * (1 - ONSET_BASELINE_ALPHA) + rms * ONSET_BASELINE_ALPHA;
+  }
+}
+
+function advanceAutoChord() {
+  const idx = TEST_CHORDS.findIndex((c) => c.name === sel.value);
+  const next = TEST_CHORDS[(idx + 1) % TEST_CHORDS.length];
+  sel.value = next.name;
+  updateChordDesc();
+  setProgressStatus('🎤 待機中: ' + next.name + ' を弾いてください');
 }
 
 /* ── ③ パラメータ調整UI ── */
