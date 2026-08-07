@@ -81,6 +81,14 @@
   <label class="row" style="font-size:13px;color:#ccc">
     <input type="checkbox" id="auto-mode" /> 自動進行モード(弾いた瞬間を検出→少し待って判定→合格なら次のコードへ)
   </label>
+  <div class="row" style="font-size:13px;color:#ccc">
+    判定の厳しさ:
+    <select id="strictness-mode">
+      <option value="3">ゆるめ(3回連続、約120ms)</option>
+      <option value="5" selected>標準(5回連続、約200ms)</option>
+      <option value="7">しっかり(7回連続、約280ms)</option>
+    </select>
+  </div>
   <div class="status" id="progress-status"></div>
   <div class="status" id="mic-status">マイク停止中</div>
 
@@ -358,9 +366,13 @@ const COOLDOWN_MS = 300; // 1回の判定サイクルの後、次のオンセッ
 // 1回でもしきい値を超えた瞬間に即合格にしていたため、余韻やノイズによる一瞬のスコアの
 // 跳ねだけで誤って合格になっていた。「迷ったら不合格側に倒す」方針(ロードマップC節)に沿って、
 // 連続でこの回数(×40ms)しきい値を超え続けて初めて合格とする。
-// あわせて「判定が速すぎて、ちゃんと確認してくれてる感じがしない」という体感面の指摘
-// (2026-08-07)も踏まえ、3→5(約200ms)に増やして少し「間」を感じられるようにした。
-const REQUIRED_PASS_STREAK = 5;
+// 3回(約120ms)と5回(約200ms)で体感の難易度差がかなりあるとの指摘(2026-08-07)を受け、
+// 固定値ではなく「判定の厳しさ」セレクタで切り替えられるようにした(本体統合時に難易度別の
+// しきい値にする案の実験も兼ねる、ロードマップH節参照)。
+let REQUIRED_PASS_STREAK = parseInt($('strictness-mode').value, 10);
+$('strictness-mode').onchange = () => {
+  REQUIRED_PASS_STREAK = parseInt($('strictness-mode').value, 10);
+};
 let autoBaseline = 0.02, autoCooldownUntil = 0, autoJudging = false, autoJudgeEndAt = 0, autoPassStreak = 0;
 
 function resetAutoState() {
