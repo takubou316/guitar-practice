@@ -1225,13 +1225,18 @@ function showMicStatus(text){
   if(text) _micStatusTimer=setTimeout(()=>el.classList.remove('visible'),3000);
 }
 const MIC_ONSET_RATIO=2.5, MIC_ONSET_MIN=0.05, MIC_BASELINE_ALPHA=0.05;
+// 直前のtick(40ms前)からどれだけ急に音量が増えたかを見る、baselineに依存しないオンセット検出。
+// baselineが(前のコードの余韻に引っ張られて)高くなっていても、直前の瞬間よりはっきり音が
+// 増えていれば新しい一発として拾えるようにするための保険(2026-08-07の実機テストで、
+// コードを間を空けずに連続して弾くと反応しないことがあると判明し追加)。
+const MIC_JUMP_RATIO=1.7;
 const MIC_SETTLE_MS=180; // ストローク直後、アタック音が落ち着くまで待つ時間
 const MIC_JUDGE_WINDOW_MS=1500; // この時間内に連続でしきい値を超えたら合格(超えなければタイムアウト)
 const MIC_COOLDOWN_MS=300;
 // 「判定の厳しさ」= 連続で合格し続けないといけない回数(×40ms)。実機テストで3回(ゆるめ)と
 // 5回(標準)で体感の難易度差が大きいと分かったため、固定値ではなく設定で選べるようにしてある。
 let micRequiredStreak=5;
-let micBaseline=0.02, micCooldownUntil=0, micJudging=false, micJudgeEndAt=0, micPassStreak=0, micMonitorIv=null;
+let micBaseline=0.02, micLastRms=0.02, micCooldownUntil=0, micJudging=false, micJudgeEndAt=0, micPassStreak=0, micMonitorIv=null;
 
 function setMicStrictness(n){
   micRequiredStreak=n;
@@ -1264,7 +1269,7 @@ async function startMic(){
   micSourceNode.connect(micOnsetAnalyser);
   micSourceNode.connect(micChromaAnalyser);
   micOn=true;
-  micBaseline=0.02; micCooldownUntil=0; micJudging=false; micPassStreak=0;
+  micBaseline=0.02; micLastRms=0.02; micCooldownUntil=0; micJudging=false; micPassStreak=0;
   micMonitorIv=setInterval(micAutoTick,40);
   showMicStatus('🎤 待機中: '+current.name+' を弾いてください');
   updateMicUI();
@@ -1294,7 +1299,9 @@ function micAutoTick(){
       // 判定中・クールダウン中はbaselineを更新していないため、弾いたコードの余韻がまだ鳴っている
       // 状態でここに戻ると次のオンセットとして誤検出し、同じストロークの減衰中に判定サイクルが
       // 空回りしてしまう(mic-debug.htmlでの実機テストで発見・修正済みの不具合と同じ対策)。
-      micBaseline=Math.max(micBaseline, micOnsetRMS());
+      // ただしMath.maxで一気に引き上げると、間を空けずに連続で弾いた時に次の一発を拾いにくく
+      // なる副作用が実機テストで判明したため、半分だけ寄せる(完全に固定しない)形に緩めてある。
+      micBaseline=(micBaseline+micOnsetRMS())/2;
       showMicStatus('🎤 まだ合ってないみたい…（もう一度弾いてみてください）');
       return;
     }
@@ -1307,7 +1314,7 @@ function micAutoTick(){
       if(micPassStreak>=micRequiredStreak){
         micJudging=false; micPassStreak=0;
         micCooldownUntil=now+MIC_COOLDOWN_MS;
-        micBaseline=Math.max(micBaseline, micOnsetRMS());
+        micBaseline=(micBaseline+micOnsetRMS())/2;
         showMicStatus('✓ 正解！次のコードへ');
         setTimeout(()=>{ nextChord(); if(micOn) showMicStatus('🎤 待機中: '+current.name+' を弾いてください'); }, 900);
       }
@@ -1317,9 +1324,14 @@ function micAutoTick(){
     return;
   }
 
-  if(now<micCooldownUntil) return;
+  if(now<micCooldownUntil){ micLastRms=micOnsetRMS(); return; }
   const rms=micOnsetRMS();
-  if(rms>Math.max(micBaseline*MIC_ONSET_RATIO, MIC_ONSET_MIN)){
+  // 基準値(baseline)の何倍か、という判定に加えて「直前のtickよりはっきり急に増えたか」も見る。
+  // 前のコードの余韻でbaselineが高くなっていても、新しく弾いた瞬間は直前より音が急に増えるはずなので、
+  // どちらか一方を満たせば新しい一発とみなす(連続して弾くと反応しない問題への対策)。
+  const levelJump=rms>Math.max(micBaseline*MIC_ONSET_RATIO, MIC_ONSET_MIN);
+  const suddenJump=rms>micLastRms*MIC_JUMP_RATIO && rms>MIC_ONSET_MIN;
+  if(levelJump||suddenJump){
     micCooldownUntil=now+MIC_SETTLE_MS+MIC_COOLDOWN_MS;
     setTimeout(()=>{
       micJudging=true; micPassStreak=0;
@@ -1328,6 +1340,7 @@ function micAutoTick(){
   } else {
     micBaseline=micBaseline*(1-MIC_BASELINE_ALPHA)+rms*MIC_BASELINE_ALPHA;
   }
+  micLastRms=rms;
 }
 function toggleMic(){ if(!micOn&&metroOn) return; micOn?stopMic():startMic(); }
 function updateMicUI(){

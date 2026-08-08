@@ -359,6 +359,11 @@ function updateLive() {
    ストローク(急な音量上昇)・指弾き(緩やかな立ち上がり)どちらでも、しきい値を"超えた瞬間"を
    見るレベル検出なので両対応できるはず、という設計目論見も合わせて検証する。 */
 const ONSET_RATIO = 2.5, ONSET_MIN = 0.05, ONSET_BASELINE_ALPHA = 0.05;
+// 直前のtickよりどれだけ急に音量が増えたかを見る、baselineに依存しないオンセット検出の保険。
+// 前のコードの余韻でbaselineが高くなっていても、新しく弾いた瞬間は直前より音が急に増えるはずなので、
+// これも満たせば新しい一発とみなす(間を空けずに連続で弾くと反応しないことがある問題への対策、
+// 2026-08-07の実機テストで発覚)。
+const JUMP_RATIO = 1.7;
 const SETTLE_MS = 180; // ストラム直後、アタック音が落ち着くまで待つ時間
 const JUDGE_WINDOW_MS = 1500; // この時間内にスコアがしきい値を超えたら合格とする(超えなければタイムアウト)
 const COOLDOWN_MS = 300; // 1回の判定サイクルの後、次のオンセットを検出し始めるまでの不応期
@@ -373,10 +378,11 @@ let REQUIRED_PASS_STREAK = parseInt($('strictness-mode').value, 10);
 $('strictness-mode').onchange = () => {
   REQUIRED_PASS_STREAK = parseInt($('strictness-mode').value, 10);
 };
-let autoBaseline = 0.02, autoCooldownUntil = 0, autoJudging = false, autoJudgeEndAt = 0, autoPassStreak = 0;
+let autoBaseline = 0.02, autoLastRms = 0.02, autoCooldownUntil = 0, autoJudging = false, autoJudgeEndAt = 0, autoPassStreak = 0;
 
 function resetAutoState() {
   autoBaseline = 0.02;
+  autoLastRms = 0.02;
   autoCooldownUntil = 0;
   autoJudging = false;
   autoPassStreak = 0;
@@ -413,9 +419,11 @@ function autoTick() {
       // 判定サイクルが終わっても弾く前の「静かな時」の値のままだった。弾いたコードの余韻が
       // まだ鳴っている状態でここに戻ると、それだけで次のオンセットとして誤検出し、同じ1回の
       // ストロークの減衰中に判定サイクルを繰り返して「進まない」ように見える不具合があった
-      // (Gのような余韻の大きいコードで顕著)。ここで現在のRMSにbaselineを合わせ直すことで、
+      // (Gのような余韻の大きいコードで顕著)。ここで現在のRMSにbaselineを寄せることで、
       // 「今の(まだ鳴っている)音量」を基準にし、本当に新しく弾いた時だけ反応するようにする。
-      autoBaseline = Math.max(autoBaseline, onsetRMS());
+      // Math.maxで完全に固定すると、間を空けずに連続で弾いた時に次の一発を拾いにくくなる副作用が
+      // あったため(2026-08-07)、半分だけ寄せるよう緩めた(JUMP_RATIOの保険と合わせて両対応)。
+      autoBaseline = (autoBaseline + onsetRMS()) / 2;
       setProgressStatus('🎤 タイムアウト、もう一度弾いてみてください: ' + sel.value);
       return;
     }
@@ -431,7 +439,7 @@ function autoTick() {
         autoJudging = false;
         autoPassStreak = 0;
         autoCooldownUntil = now + COOLDOWN_MS;
-        autoBaseline = Math.max(autoBaseline, onsetRMS()); // 同上の理由でここでも合わせ直す
+        autoBaseline = (autoBaseline + onsetRMS()) / 2; // 同上の理由でここでも寄せる
         setProgressStatus(`✓ 正解！(スコア${result.score.toFixed(2)}) 次のコードへ`);
         setTimeout(advanceAutoChord, 900);
       }
@@ -441,9 +449,13 @@ function autoTick() {
     return;
   }
 
-  if (now < autoCooldownUntil) return;
+  if (now < autoCooldownUntil) { autoLastRms = onsetRMS(); return; }
   const rms = onsetRMS();
-  if (rms > Math.max(autoBaseline * ONSET_RATIO, ONSET_MIN)) {
+  // 基準値の何倍か、に加えて「直前のtickよりはっきり急に増えたか」も見る。どちらか一方を
+  // 満たせば新しい一発とみなす(連続して弾くと反応しない問題への対策)。
+  const levelJump = rms > Math.max(autoBaseline * ONSET_RATIO, ONSET_MIN);
+  const suddenJump = rms > autoLastRms * JUMP_RATIO && rms > ONSET_MIN;
+  if (levelJump || suddenJump) {
     autoCooldownUntil = now + SETTLE_MS + COOLDOWN_MS;
     setProgressStatus('🎯 判定中…');
     setTimeout(() => {
@@ -454,6 +466,7 @@ function autoTick() {
   } else {
     autoBaseline = autoBaseline * (1 - ONSET_BASELINE_ALPHA) + rms * ONSET_BASELINE_ALPHA;
   }
+  autoLastRms = rms;
 }
 
 function advanceAutoChord() {
