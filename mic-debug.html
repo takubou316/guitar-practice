@@ -279,17 +279,27 @@ sel.onchange = updateChordDesc;
 updateChordDesc();
 
 let micCtx = null, micStream = null, micAnalyser = null, micLoop = null;
-let onsetAnalyser = null, onsetLoop = null;
+let onsetAnalyser = null, onsetLoop = null, micStarting = false;
+let micOnsetBuf = null, micChromaBuf = null; // 毎tick確保しない使い回しバッファ(2026-08-13のレビューで指摘)
 
 $('btn-mic-start').onclick = async () => {
+  // 許可ダイアログ待ち中の二重起動防止(連打や反応が遅い許可ダイアログで2重にstartが走ると、
+  // 片方のMediaStream/setIntervalが参照を失ったまま残り続ける、2026-08-13のレビューで発覚)。
+  if (micAnalyser || micStarting) return;
+  micStarting = true;
+  $('btn-mic-start').disabled = true;
+  let stream;
   try {
-    micStream = await navigator.mediaDevices.getUserMedia({
+    stream = await navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
     });
   } catch (e) {
+    micStarting = false;
+    $('btn-mic-start').disabled = false;
     $('mic-status').textContent = 'マイクを使用できませんでした: ' + e.message;
     return;
   }
+  micStream = stream;
   micCtx = new (window.AudioContext || window.webkitAudioContext)();
   if (micCtx.state === 'suspended') await micCtx.resume();
   const src = micCtx.createMediaStreamSource(micStream);
@@ -301,8 +311,10 @@ $('btn-mic-start').onclick = async () => {
   // コード判定用(micAnalyser)とは分けている(旧実装と同じ理由、CLAUDE.md参照)。
   onsetAnalyser = micCtx.createAnalyser();
   onsetAnalyser.fftSize = 512;
+  micOnsetBuf = new Uint8Array(onsetAnalyser.fftSize);
+  micChromaBuf = new Float32Array(micAnalyser.frequencyBinCount);
   src.connect(onsetAnalyser);
-  $('btn-mic-start').disabled = true;
+  micStarting = false;
   $('btn-mic-stop').disabled = false;
   $('mic-status').textContent = 'マイク動作中…コードを弾いてください';
   micLoop = setInterval(updateLive, 150);
@@ -313,9 +325,12 @@ $('btn-mic-start').onclick = async () => {
 $('btn-mic-stop').onclick = () => {
   if (micLoop) clearInterval(micLoop);
   if (onsetLoop) clearInterval(onsetLoop);
+  // autoTick内のsetTimeout(オンセット確定待ち・合格後の次コード待ち)は、止めないとstopMic()後でも
+  // 遅れて発火してしまう(2026-08-13のレビューで発覚、index.htmlの修正と同じ)。
+  if (autoSettleTimeout) { clearTimeout(autoSettleTimeout); autoSettleTimeout = null; }
+  if (autoAdvanceTimeout) { clearTimeout(autoAdvanceTimeout); autoAdvanceTimeout = null; }
   if (micStream) micStream.getTracks().forEach((t) => t.stop());
-  if (micCtx) micCtx.close();
-  micCtx = micStream = micAnalyser = micLoop = onsetAnalyser = onsetLoop = null;
+  micCtx = micStream = micAnalyser = micLoop = onsetAnalyser = onsetLoop = micOnsetBuf = null;
   $('btn-mic-start').disabled = false;
   $('btn-mic-stop').disabled = true;
   $('mic-status').textContent = 'マイク停止中';
@@ -328,9 +343,8 @@ function updateLive() {
   if (!micAnalyser) return;
   const chordName = sel.value;
   const chord = TEST_CHORDS.find((c) => c.name === chordName);
-  const db = new Float32Array(micAnalyser.frequencyBinCount);
-  micAnalyser.getFloatFrequencyData(db);
-  const peaks = M.findPeaks(db, micCtx.sampleRate, micAnalyser.fftSize);
+  micAnalyser.getFloatFrequencyData(micChromaBuf);
+  const peaks = M.findPeaks(micChromaBuf, micCtx.sampleRate, micAnalyser.fftSize);
   const result = M.matchScore(peaks, chord, TEST_CHORDS);
 
   const disp = $('score-display');
@@ -379,6 +393,8 @@ $('strictness-mode').onchange = () => {
   REQUIRED_PASS_STREAK = parseInt($('strictness-mode').value, 10);
 };
 let autoBaseline = 0.02, autoLastRms = 0.02, autoCooldownUntil = 0, autoJudging = false, autoJudgeEndAt = 0, autoPassStreak = 0;
+let autoJudgingChord = null; // 判定中に弾いていたコードのスナップショット(下記autoTick参照)
+let autoSettleTimeout = null, autoAdvanceTimeout = null; // btn-mic-stopで必ずキャンセルするため参照を保持
 
 function resetAutoState() {
   autoBaseline = 0.02;
@@ -386,6 +402,7 @@ function resetAutoState() {
   autoCooldownUntil = 0;
   autoJudging = false;
   autoPassStreak = 0;
+  autoJudgingChord = null;
   if ($('auto-mode').checked) {
     setProgressStatus('🎤 待機中: ' + sel.value + ' を弾いてください');
   }
@@ -397,14 +414,13 @@ function setProgressStatus(text) {
 }
 
 function onsetRMS() {
-  const buf = new Uint8Array(onsetAnalyser.fftSize);
-  onsetAnalyser.getByteTimeDomainData(buf);
+  onsetAnalyser.getByteTimeDomainData(micOnsetBuf);
   let sum = 0;
-  for (let i = 0; i < buf.length; i++) {
-    const v = (buf[i] - 128) / 128;
+  for (let i = 0; i < micOnsetBuf.length; i++) {
+    const v = (micOnsetBuf[i] - 128) / 128;
     sum += v * v;
   }
-  return Math.sqrt(sum / buf.length);
+  return Math.sqrt(sum / micOnsetBuf.length);
 }
 
 function autoTick() {
@@ -412,6 +428,13 @@ function autoTick() {
   const now = performance.now();
 
   if (autoJudging) {
+    // 判定中にドロップダウンでターゲットが変更されていたら、弾いた瞬間に選ばれていたコード
+    // (autoJudgingChord)と食い違うのでこの判定は無効にする(2026-08-13、Codexのレビューで指摘)。
+    if (sel.value !== autoJudgingChord.name) {
+      autoJudging = false;
+      autoPassStreak = 0;
+      return;
+    }
     if (now > autoJudgeEndAt) {
       autoJudging = false;
       autoPassStreak = 0;
@@ -427,11 +450,9 @@ function autoTick() {
       setProgressStatus('🎤 タイムアウト、もう一度弾いてみてください: ' + sel.value);
       return;
     }
-    const chord = TEST_CHORDS.find((c) => c.name === sel.value);
-    const db = new Float32Array(micAnalyser.frequencyBinCount);
-    micAnalyser.getFloatFrequencyData(db);
-    const peaks = M.findPeaks(db, micCtx.sampleRate, micAnalyser.fftSize);
-    const result = M.matchScore(peaks, chord, TEST_CHORDS);
+    micAnalyser.getFloatFrequencyData(micChromaBuf);
+    const peaks = M.findPeaks(micChromaBuf, micCtx.sampleRate, micAnalyser.fftSize);
+    const result = M.matchScore(peaks, autoJudgingChord, TEST_CHORDS);
     if (result.score >= M.params.matchThreshold) {
       autoPassStreak++;
       setProgressStatus(`🎯 判定中… (${autoPassStreak}/${REQUIRED_PASS_STREAK}, スコア${result.score.toFixed(2)})`);
@@ -441,7 +462,7 @@ function autoTick() {
         autoCooldownUntil = now + COOLDOWN_MS;
         autoBaseline = (autoBaseline + onsetRMS()) / 2; // 同上の理由でここでも寄せる
         setProgressStatus(`✓ 正解！(スコア${result.score.toFixed(2)}) 次のコードへ`);
-        setTimeout(advanceAutoChord, 900);
+        autoAdvanceTimeout = setTimeout(() => { autoAdvanceTimeout = null; advanceAutoChord(); }, 900);
       }
     } else {
       autoPassStreak = 0; // 連続性が途切れたら最初からやり直し(ノイズの一瞬の跳ねを弾くため)
@@ -458,7 +479,10 @@ function autoTick() {
   if (levelJump || suddenJump) {
     autoCooldownUntil = now + SETTLE_MS + COOLDOWN_MS;
     setProgressStatus('🎯 判定中…');
-    setTimeout(() => {
+    autoSettleTimeout = setTimeout(() => {
+      autoSettleTimeout = null;
+      if (!micAnalyser) return; // btn-mic-stop後に遅れて発火した場合は何もしない
+      autoJudgingChord = TEST_CHORDS.find((c) => c.name === sel.value); // 判定対象を弾いた瞬間のコードに固定
       autoJudging = true;
       autoPassStreak = 0;
       autoJudgeEndAt = performance.now() + JUDGE_WINDOW_MS;
@@ -503,7 +527,10 @@ PARAM_DEFS.forEach((def) => {
 });
 
 $('fft-size').onchange = () => {
-  if (micAnalyser) micAnalyser.fftSize = parseInt($('fft-size').value, 10);
+  if (micAnalyser) {
+    micAnalyser.fftSize = parseInt($('fft-size').value, 10);
+    micChromaBuf = new Float32Array(micAnalyser.frequencyBinCount); // fftSize変更でサイズが変わるので取り直す
+  }
 };
 </script>
 </body>

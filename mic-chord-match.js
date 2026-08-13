@@ -30,12 +30,16 @@
     harmonicWeights: [1, 0.6, 0.35, 0.2], // 基音・2倍音・3倍音・4倍音への重み
     negativePenalty: 1.8, // 紛らわしいコードの差分音エネルギーへのペナルティ係数
     // (2026-08-06の自己テストで、平行調の混同を十分抑えるには初期値1.0では弱いと判明し調整)
-    minCoverageFraction: 0.35, // 各ターゲット音が「均等に鳴っていた場合の取り分(1/音数)」の
+    minCoverageFraction: 0.12, // 各ターゲット音が「均等に鳴っていた場合の取り分(1/音数)」の
     // 何割以上を持っていれば「その音は鳴っている」とみなすか。これを下回る音が1つでもあれば
     // 他がどれだけ良くてもハードに不合格にする(2026-08-07: Amの2弦をミュートしたまま弾いても
     // 残り4音で合格してしまうバグを実機テストで発見し、ソフトな減点からハードな足切りに変更)。
     // 7thコード(例: E7)がベースの三和音(E)を含む部分集合関係にあるため、紛らわしいコードとの
     // 差分だけでは検出できない「音の欠け」もこれで拾える(2026-08-06の自己テストで発見した穴)。
+    // 【2026-08-13再調整】このチェックは倍音込みのtargetEvidenceから基音だけのfundamentalEvidence
+    // に変更した(下記参照)。基音だけだと数値が全体的に小さくなるため、0.35のままだと本当に
+    // 鳴っている音まで誤って「欠落」判定してしまっていた。「鳴っていない音の取り分は常にほぼ0」
+    // 「鳴っている音の取り分は0.03以上」という実測の差が大きいことを確認した上で0.12に調整。
     matchThreshold: 0.5, // この値以上で「合格」
   };
 
@@ -132,10 +136,14 @@
   // 同点で複数の候補がある場合(例: Amに対してAとCが同率で紛らわしい)、1件だけ選ぶと
   // 「たまたま先に見つかった方」としか比較できず、もう一方との混同を見逃す
   // (自己テストで実際に発生を確認済み、2026-08-06)。そのため margin 以内の同率候補は
-  // 全部まとめて返す。
+  // 全部まとめて返す。allChordsのプールはアプリ実行中に変わらない前提で、結果をchord名で
+  // キャッシュする(判定中は同じコードに対して40msごとに呼ばれるため、2026-08-13のレビューで
+  // 指摘された「判定ウィンドウ中の無駄な再計算」を避ける)。
+  const _confusableCache = new Map();
   function confusableChords(chord, allChords, opts) {
-    opts = opts || {};
-    const margin = opts.margin != null ? opts.margin : 0.001;
+    const cacheable = !opts;
+    if (cacheable && _confusableCache.has(chord.name)) return _confusableCache.get(chord.name);
+    const margin = opts && opts.margin != null ? opts.margin : 0.001;
     const pcs = chordPitchClassSet(chord);
     const scored = [];
     allChords.forEach((other) => {
@@ -148,10 +156,34 @@
       const ratio = overlap / Math.max(pcs.size, otherPcs.size, 1);
       scored.push({ chord: other, overlapRatio: ratio });
     });
-    if (!scored.length) return [];
-    scored.sort((a, b) => b.overlapRatio - a.overlapRatio);
-    const best = scored[0].overlapRatio;
-    return scored.filter((s) => s.overlapRatio >= best - margin);
+    let result;
+    if (!scored.length) {
+      result = [];
+    } else {
+      scored.sort((a, b) => b.overlapRatio - a.overlapRatio);
+      const best = scored[0].overlapRatio;
+      // 重なりが実質ゼロの候補まで「一番紛らわしい」扱いにすると、無関係なコードの音が
+      // 陰性証拠として紛れ込んでしまう(2026-08-13、Codexのレビューで指摘)。
+      result = best > 0 ? scored.filter((s) => s.overlapRatio >= best - margin) : [];
+    }
+    if (cacheable) _confusableCache.set(chord.name, result);
+    return result;
+  }
+
+  // 基音(倍音を畳み込まない)だけの証拠。カバレッジチェック(その音が本当に鳴っているかの
+  // ハードな足切り)専用。targetEvidence(倍音込み)をそのまま流用すると、和音内の別の音の
+  // 周波数がこの音の倍音の周波数とたまたま一致してしまうことがある
+  // (例: Amで5弦(110Hz)がミュートされていても、実際に鳴っている3弦(220Hz)を110Hzの2倍音
+  // として拾ってしまい、本当は鳴っていない音に証拠がついて足切りをすり抜けてしまう)。
+  // 2026-08-13、Codexのレビューで指摘。足切り判定だけは基音そのものの有無に絞ることで、
+  // 「他の音の倍音経由で鳴っていることにされる」のを防ぐ。
+  function fundamentalEvidence(targetFreq, peaks) {
+    let best = null;
+    peaks.forEach((pk) => {
+      const d = Math.abs(centsDiff(pk.freq, targetFreq));
+      if (d <= params.baseCentsTolerance && (!best || pk.db > best.db)) best = pk;
+    });
+    return best ? dbToLinear(best.db) : 0;
   }
 
   // 後方互換・表示用: 一番紛らわしい候補を1件だけ返す(同点の場合は先頭のもの)。
@@ -168,7 +200,11 @@
   function matchScore(peaks, chord, allChords) {
     const totalPeakEnergy = peaks.reduce((s, pk) => s + dbToLinear(pk.db), 0);
     const targets = chordExpectedFreqs(chord);
-    const positiveEvidence = targets.reduce((s, f) => s + targetEvidence(f, peaks), 0);
+    // 倍音込みの証拠は1音につき1回だけ計算し、陽性証拠の合計に使い回す
+    // (以前はここと後述のカバレッジ判定用sharesの2箇所で同じ計算を重複していた、
+    // 2026-08-13のレビューで指摘)。
+    const targetEvidences = targets.map((f) => targetEvidence(f, peaks));
+    const positiveEvidence = targetEvidences.reduce((s, e) => s + e, 0);
 
     let negativeEvidence = 0;
     let confusables = [];
@@ -176,15 +212,16 @@
       confusables = confusableChords(chord, allChords);
       if (confusables.length) {
         const chordPcs = chordPitchClassSet(chord);
-        // 複数の紛らわしい候補の「決め手の音」をピッチクラス単位で重複なく集める
-        const telltale = new Map(); // pitchClass -> freq
+        // 複数の紛らわしい候補の「決め手の音」を集める。ピッチクラス単位で1オクターブ分だけに
+        // 絞ると、紛らわしいコードがそのオクターブと違う位置で決め手の音を鳴らした時に見逃す
+        // (2026-08-13、Codexのレビューで指摘)ため、周波数そのもの(全オクターブ分)で重複を除く。
+        const telltaleFreqs = new Set();
         confusables.forEach(({ chord: other }) => {
           chordExpectedFreqs(other).forEach((f) => {
-            const pc = freqToPitchClass(f);
-            if (!chordPcs.has(pc) && !telltale.has(pc)) telltale.set(pc, f);
+            if (!chordPcs.has(freqToPitchClass(f))) telltaleFreqs.add(f);
           });
         });
-        negativeEvidence = Array.from(telltale.values()).reduce(
+        negativeEvidence = Array.from(telltaleFreqs).reduce(
           (s, f) => s + targetEvidence(f, peaks),
           0
         );
@@ -214,7 +251,9 @@
     // このアプリの目的は「全部の指が正しく押さえられているか」の確認なので、1音でも
     // 期待した取り分を大きく下回っているなら、他がどれだけ良くてもハードに不合格にする
     // (ソフトな減点だと、4/5音が強ければ1音の欠落を帳消しにできてしまっていた)。
-    const shares = targets.map((f) => targetEvidence(f, peaks) / totalPeakEnergy);
+    // ここは倍音込みのtargetEvidenceではなく基音だけのfundamentalEvidenceを使う
+    // (理由は同関数のコメント参照、2026-08-13のCodexレビューで指摘)。
+    const shares = targets.map((f) => fundamentalEvidence(f, peaks) / totalPeakEnergy);
     const weakestShare = shares.length ? Math.min(...shares) : 0;
     const expectedMinShare = (1 / Math.max(targets.length, 1)) * params.minCoverageFraction;
     const missingNote = weakestShare < expectedMinShare;
@@ -241,6 +280,7 @@
     freqToPitchClass,
     findPeaks,
     targetEvidence,
+    fundamentalEvidence,
     mostConfusableChord,
     confusableChords,
     matchScore,

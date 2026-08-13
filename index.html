@@ -1214,7 +1214,8 @@ function updateMetroUI(){
    状態管理とUI配線だけを置く。設計・実機テストの詳細は
    作業日記\01 ギター練習ツール\プラン\2026-08-06_マイク自動判定機能_再設計ロードマップ.md 参照。
    mic-debug.htmlで実機検証済みの設計をそのまま移植している。 */
-let micOn=false, micStream=null, micChromaAnalyser=null, micOnsetAnalyser=null, micSourceNode=null;
+let micOn=false, micStarting=false, micStream=null, micChromaAnalyser=null, micOnsetAnalyser=null, micSourceNode=null;
+let micOnsetBuf=null, micChromaBuf=null; // 毎tick確保しない使い回しバッファ(2026-08-13のレビューで指摘、修正)
 let _micStatusTimer=null;
 function showMicStatus(text){
   const el=document.getElementById('mic-status');
@@ -1237,6 +1238,8 @@ const MIC_COOLDOWN_MS=300;
 // 5回(標準)で体感の難易度差が大きいと分かったため、固定値ではなく設定で選べるようにしてある。
 let micRequiredStreak=5;
 let micBaseline=0.02, micLastRms=0.02, micCooldownUntil=0, micJudging=false, micJudgeEndAt=0, micPassStreak=0, micMonitorIv=null;
+let micJudgingChord=null; // 判定中に弾いていたコードのスナップショット(下記参照)
+let micSettleTimeout=null, micAdvanceTimeout=null; // stopMic()で必ずキャンセルするため参照を保持しておく
 
 function setMicStrictness(n){
   micRequiredStreak=n;
@@ -1246,14 +1249,30 @@ function setMicStrictness(n){
 }
 
 async function startMic(){
-  if(metroOn) return; // 排他: メトロノーム再生中は起動しない
+  // micStartingは許可ダイアログ待ち中の二重起動防止(2026-08-13のレビューで発覚: ボタン連打や
+  // 反応が遅い許可ダイアログ中にもう一度toggleMic()が呼ばれると、micOnがまだfalseのままなので
+  // startMic()が2重に走り、片方のMediaStream/setIntervalが参照を失ったまま残り続けてしまう)。
+  if(metroOn||micOn||micStarting) return;
+  micStarting=true;
+  document.getElementById('mic-btn').disabled=true;
+  document.getElementById('play-btn').disabled=true; // 許可待ちの間はメトロノーム側からも起動できないようにする
   let stream;
   try{
     stream=await navigator.mediaDevices.getUserMedia({
       audio:{echoCancellation:false, noiseSuppression:false, autoGainControl:false}
     });
   }catch(e){
+    micStarting=false;
+    updateMetroUI(); updateMicUI(); // ボタンのdisabled状態を戻す
     showMicStatus('🎤 マイクを使用できませんでした（許可設定を確認してください）');
+    return;
+  }
+  if(metroOn){
+    // 許可待ちの間にメトロノームが起動していた場合の保険(通常はplay-btnをdisabledにしているので
+    // 起きないはずだが、念のため二重チェックしておく)。
+    stream.getTracks().forEach(t=>t.stop());
+    micStarting=false;
+    updateMetroUI(); updateMicUI();
     return;
   }
   micStream=stream;
@@ -1265,17 +1284,24 @@ async function startMic(){
   micChromaAnalyser=ctx.createAnalyser();
   micChromaAnalyser.fftSize=8192;
   micChromaAnalyser.smoothingTimeConstant=0; // 単発判定用途なので時間平滑化はしない
+  micOnsetBuf=new Uint8Array(micOnsetAnalyser.fftSize);
+  micChromaBuf=new Float32Array(micChromaAnalyser.frequencyBinCount);
   // destinationにはつながない: マイク音をそのまま出力するとハウリングの原因になるため、解析専用の接続にとどめる
   micSourceNode.connect(micOnsetAnalyser);
   micSourceNode.connect(micChromaAnalyser);
-  micOn=true;
-  micBaseline=0.02; micLastRms=0.02; micCooldownUntil=0; micJudging=false; micPassStreak=0;
+  micOn=true; micStarting=false;
+  micBaseline=0.02; micLastRms=0.02; micCooldownUntil=0; micJudging=false; micPassStreak=0; micJudgingChord=null;
   micMonitorIv=setInterval(micAutoTick,40);
   showMicStatus('🎤 待機中: '+current.name+' を弾いてください');
   updateMicUI();
 }
 function stopMic(){
   if(micMonitorIv){clearInterval(micMonitorIv);micMonitorIv=null;}
+  // micAutoTick内のsetTimeout(オンセット確定待ち・合格後のnextChord待ち)は、止めないと
+  // stopMic()の後でも遅れて発火してしまう。発火するとmicJudgingが勝手にtrueに戻ったり、
+  // 止めたはずなのにnextChord()が呼ばれたりする(2026-08-13のレビューで発覚、修正)。
+  if(micSettleTimeout){clearTimeout(micSettleTimeout);micSettleTimeout=null;}
+  if(micAdvanceTimeout){clearTimeout(micAdvanceTimeout);micAdvanceTimeout=null;}
   if(micStream) micStream.getTracks().forEach(t=>t.stop());
   // ノードを明示的にdisconnectしてからnullにする。しないまま次のstartMic()で新しいノードを
   // 繋ぎ直すと、古いノードがオーディオグラフに残り続け、開始・停止を繰り返すほど増えていく
@@ -1284,22 +1310,31 @@ function stopMic(){
   if(micOnsetAnalyser){ try{ micOnsetAnalyser.disconnect(); }catch(e){} }
   if(micChromaAnalyser){ try{ micChromaAnalyser.disconnect(); }catch(e){} }
   micStream=null; micOnsetAnalyser=null; micChromaAnalyser=null; micSourceNode=null;
-  micOn=false; micJudging=false; micPassStreak=0;
+  micOnsetBuf=null; micChromaBuf=null;
+  micOn=false; micJudging=false; micPassStreak=0; micJudgingChord=null;
   showMicStatus('');
   updateMicUI();
 }
 function micOnsetRMS(){
-  const buf=new Uint8Array(micOnsetAnalyser.fftSize);
-  micOnsetAnalyser.getByteTimeDomainData(buf);
+  micOnsetAnalyser.getByteTimeDomainData(micOnsetBuf);
   let sum=0;
-  for(let i=0;i<buf.length;i++){ const v=(buf[i]-128)/128; sum+=v*v; }
-  return Math.sqrt(sum/buf.length);
+  for(let i=0;i<micOnsetBuf.length;i++){ const v=(micOnsetBuf[i]-128)/128; sum+=v*v; }
+  return Math.sqrt(sum/micOnsetBuf.length);
 }
 function micAutoTick(){
   if(!micOnsetAnalyser||!micChromaAnalyser) return;
   const now=performance.now();
 
   if(micJudging){
+    // 判定中に手動送り(◀/▶)・時間切替タイマー・コード選択の変更等でcurrentが変わっていたら、
+    // 弾いた瞬間に表示されていたコード(micJudgingChord)と食い違うのでこの判定は無効にする
+    // (2026-08-13のレビューで発覚: 判定中はcurrentを毎tick読み直していたため、途中でコードが
+    // 切り替わると差し替わった後のコードに対して判定してしまい、成功時に二重にnextChord()が
+    // 呼ばれることがあった)。
+    if(current!==micJudgingChord){
+      micJudging=false; micPassStreak=0;
+      return;
+    }
     if(now>micJudgeEndAt){
       micJudging=false; micPassStreak=0;
       // 判定中・クールダウン中はbaselineを更新していないため、弾いたコードの余韻がまだ鳴っている
@@ -1311,18 +1346,22 @@ function micAutoTick(){
       showMicStatus('🎤 まだ合ってないみたい…（もう一度弾いてみてください）');
       return;
     }
-    const db=new Float32Array(micChromaAnalyser.frequencyBinCount);
-    micChromaAnalyser.getFloatFrequencyData(db);
-    const peaks=MicChordMatch.findPeaks(db, getCtx().sampleRate, micChromaAnalyser.fftSize);
-    const result=MicChordMatch.matchScore(peaks, current, ALL_CHORDS);
+    micChromaAnalyser.getFloatFrequencyData(micChromaBuf);
+    const peaks=MicChordMatch.findPeaks(micChromaBuf, getCtx().sampleRate, micChromaAnalyser.fftSize);
+    const result=MicChordMatch.matchScore(peaks, micJudgingChord, ALL_CHORDS);
     if(result.score>=MicChordMatch.params.matchThreshold){
       micPassStreak++;
+      showMicStatus(`🎯 判定中… (${micPassStreak}/${micRequiredStreak})`);
       if(micPassStreak>=micRequiredStreak){
         micJudging=false; micPassStreak=0;
         micCooldownUntil=now+MIC_COOLDOWN_MS;
         micBaseline=(micBaseline+micOnsetRMS())/2;
         showMicStatus('✓ 正解！次のコードへ');
-        setTimeout(()=>{ nextChord(); if(micOn) showMicStatus('🎤 待機中: '+current.name+' を弾いてください'); }, 900);
+        micAdvanceTimeout=setTimeout(()=>{
+          micAdvanceTimeout=null;
+          nextChord();
+          if(micOn) showMicStatus('🎤 待機中: '+current.name+' を弾いてください');
+        }, 900);
       }
     } else {
       micPassStreak=0; // 連続性が途切れたら最初からやり直し(ノイズの一瞬の跳ねを弾くため)
@@ -1339,7 +1378,11 @@ function micAutoTick(){
   const suddenJump=rms>micLastRms*MIC_JUMP_RATIO && rms>MIC_ONSET_MIN;
   if(levelJump||suddenJump){
     micCooldownUntil=now+MIC_SETTLE_MS+MIC_COOLDOWN_MS;
-    setTimeout(()=>{
+    showMicStatus('🎯 判定中…');
+    micSettleTimeout=setTimeout(()=>{
+      micSettleTimeout=null;
+      if(!micOn) return; // stopMic()後に遅れて発火した場合は何もしない
+      micJudgingChord=current; // 判定対象を弾いた瞬間のコードに固定する
       micJudging=true; micPassStreak=0;
       micJudgeEndAt=performance.now()+MIC_JUDGE_WINDOW_MS;
     }, MIC_SETTLE_MS);
