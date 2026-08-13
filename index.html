@@ -1258,7 +1258,7 @@ async function startMic(){
   }
   micStream=stream;
   const ctx=getCtx();
-  if(ctx.state==='suspended') ctx.resume();
+  if(ctx.state==='suspended') await ctx.resume(); // resume()の完了を待たずに解析を始めると最初の数tickが無音のまま読める
   micSourceNode=ctx.createMediaStreamSource(micStream);
   micOnsetAnalyser=ctx.createAnalyser();
   micOnsetAnalyser.fftSize=512; // 短いバッファで音量変化に素早く反応させる(判定用とは分離)
@@ -1277,6 +1277,12 @@ async function startMic(){
 function stopMic(){
   if(micMonitorIv){clearInterval(micMonitorIv);micMonitorIv=null;}
   if(micStream) micStream.getTracks().forEach(t=>t.stop());
+  // ノードを明示的にdisconnectしてからnullにする。しないまま次のstartMic()で新しいノードを
+  // 繋ぎ直すと、古いノードがオーディオグラフに残り続け、開始・停止を繰り返すほど増えていく
+  // (2026-08-11のレビューで指摘、修正)。
+  if(micSourceNode){ try{ micSourceNode.disconnect(); }catch(e){} }
+  if(micOnsetAnalyser){ try{ micOnsetAnalyser.disconnect(); }catch(e){} }
+  if(micChromaAnalyser){ try{ micChromaAnalyser.disconnect(); }catch(e){} }
   micStream=null; micOnsetAnalyser=null; micChromaAnalyser=null; micSourceNode=null;
   micOn=false; micJudging=false; micPassStreak=0;
   showMicStatus('');
