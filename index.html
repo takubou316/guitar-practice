@@ -811,7 +811,7 @@ function peekNextChord(){return peekChord(1);}
 /* ── コール選択 ── */
 // 選択コードはプロフィールごとに保存し、次回起動時も同じ選択を復元する
 const SEL_KEY = 'guitar-selected-chords';
-function selectedChordsKey(){ return SEL_KEY + (currentProfile ? '-' + currentProfile : ''); }
+function selectedChordsKey(name=currentProfile){ return SEL_KEY + (name ? '-' + name : ''); }
 function saveSelectedChords(){ localStorage.setItem(selectedChordsKey(), JSON.stringify([...selectedNames])); }
 function loadSelectedChords(){
   try {
@@ -1477,7 +1477,7 @@ function leZFromLayout(layout){
 let leOrient = 'portrait';
 let leDragState = null;
 
-function leLayoutKey(){ return LE_KEY + (currentProfile ? '-' + currentProfile : ''); }
+function leLayoutKey(name=currentProfile){ return LE_KEY + (name ? '-' + name : ''); }
 
 function loadCustomLayouts(){
   try { customLayouts = JSON.parse(localStorage.getItem(leLayoutKey()) || 'null') || { portrait: null, landscape: null }; } catch(e){ customLayouts = { portrait: null, landscape: null }; }
@@ -2113,21 +2113,52 @@ function addProfile(){
 function deleteProfile(name){
   if(!confirm(`「${name}」の記録を削除しますか？`)) return;
   localStorage.removeItem(profileKey(name));
-  if(currentProfile===name){ currentProfile=null; chordStatus={}; document.getElementById('profile-chip').textContent='👤 —'; buildRecordView(); buildSongsView(); }
+  localStorage.removeItem(selectedChordsKey(name));
+  localStorage.removeItem(leLayoutKey(name));
+  localStorage.removeItem(streakKey(name));
+  if(currentProfile===name){
+    currentProfile=null;
+    localStorage.removeItem(LS_CURRENT);
+    chordStatus={};
+    document.getElementById('profile-chip').textContent='👤 —';
+    buildRecordView();
+    buildSongsView();
+    loadSelectedChords();
+    refreshPool();
+    buildChordGrid();
+    loadCustomLayouts();
+  }
   buildProfileModal();
 }
 function buildProfileModal(){
   const profiles = listProfiles();
   const list = document.getElementById('profile-list');
+  list.replaceChildren();
   if(profiles.length===0){
-    list.innerHTML = '<p style="font-size:13px;color:var(--text2);margin-bottom:8px;">まず名前を入力して始めましょう</p>';
+    const empty = document.createElement('p');
+    empty.style.cssText = 'font-size:13px;color:var(--text2);margin-bottom:8px;';
+    empty.textContent = 'まず名前を入力して始めましょう';
+    list.append(empty);
     return;
   }
-  list.innerHTML = profiles.map(n=>`
-    <div class="profile-item">
-      <div class="profile-item-name${n===currentProfile?' current':''}" onclick="loadProfile('${n}')">${n===currentProfile?'✓ ':''} ${n}</div>
-      <span class="profile-del" onclick="deleteProfile('${n}')">削除</span>
-    </div>`).join('');
+  profiles.forEach(n=>{
+    const item = document.createElement('div');
+    item.className = 'profile-item';
+
+    const nameEl = document.createElement('div');
+    nameEl.className = `profile-item-name${n===currentProfile?' current':''}`;
+    nameEl.textContent = `${n===currentProfile?'✓ ':''} ${n}`;
+    nameEl.addEventListener('click', ()=>loadProfile(n));
+
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'profile-del';
+    del.textContent = '削除';
+    del.addEventListener('click', ()=>deleteProfile(n));
+
+    item.append(nameEl, del);
+    list.append(item);
+  });
 }
 function openProfileModal(){ buildProfileModal(); document.getElementById('profile-modal').classList.add('open'); }
 function closeProfileModal(){ document.getElementById('profile-modal').classList.remove('open'); }
