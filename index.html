@@ -351,6 +351,10 @@ footer.controls-bar { height: var(--ftr); flex-shrink: 0; display: flex; align-i
 .profile-chip { font-size: 11px; padding: 3px 10px; border-radius: 20px; background: var(--surface2); border: 0.5px solid var(--border); color: var(--text2); cursor: pointer; white-space: nowrap; max-width: 90px; overflow: hidden; text-overflow: ellipsis; -webkit-tap-highlight-color: transparent; flex-shrink: 0; }
 .profile-chip:active { opacity: 0.7; }
 .profile-modal { position: fixed; inset: 0; z-index: 60; background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); display: none; align-items: flex-end; justify-content: center; }
+/* newsong-modalは曲一覧(通常のz-index)だけでなく、歌詞編集画面(sp-overlay, z-index:70)の中の
+   ✎ボタンからも開くため、.profile-modalの既定z-index(60)のままだとsp-overlayの下に隠れて見えなく
+   なる(タップしても反応が無いように見えるバグの原因だった)。sp-overlayより確実に上に来るよう上書きする。 */
+#newsong-modal { z-index: 80; }
 .profile-modal.open { display: flex; }
 .profile-panel { background: var(--surface); border: 0.5px solid var(--border); border-radius: 20px 20px 0 0; padding: 16px; padding-bottom: calc(14px + env(safe-area-inset-bottom)); width: 100%; max-width: 520px; max-height: 75dvh; overflow-y: auto; animation: slide-up 0.22s ease; }
 .profile-panel h3 { font-size: 15px; font-weight: 700; margin-bottom: 12px; }
