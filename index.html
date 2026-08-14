@@ -615,11 +615,11 @@ body.le-prev-on .le-preview-content { display:flex; flex-direction:column; align
 <!-- 新しい曲（曲名・アーティスト名の入力） -->
 <div class="profile-modal" id="newsong-modal">
   <div class="profile-panel" id="newsong-panel">
-    <h3>🎵 新しい曲</h3>
+    <h3 id="newsong-modal-title">🎵 新しい曲</h3>
     <div class="profile-new-row" style="flex-direction:column; align-items:stretch; gap:8px;">
       <input class="profile-input" id="newsong-title" placeholder="曲名" maxlength="60" style="width:100%;">
       <input class="profile-input" id="newsong-artist" placeholder="アーティスト名" maxlength="60" style="width:100%;">
-      <button class="profile-add-btn" onclick="createNewSong()">次へ（歌詞を入力）</button>
+      <button class="profile-add-btn" id="newsong-confirm-btn" onclick="confirmNewSongModal()">次へ（歌詞を入力）</button>
     </div>
   </div>
 </div>
@@ -639,7 +639,10 @@ body.le-prev-on .le-preview-content { display:flex; flex-direction:column; align
 <div class="sp-overlay" id="sp-edit-overlay">
   <div class="sp-hdr">
     <div class="sp-hdr-title" id="sp-edit-title"></div>
-    <button class="sp-close-btn" onclick="closeSongEditor()">✕</button>
+    <div style="display:flex; gap:8px; flex-shrink:0;">
+      <button class="sp-close-btn" onclick="openRenameSongModal()">✎</button>
+      <button class="sp-close-btn" onclick="closeSongEditor()">✕</button>
+    </div>
   </div>
   <div class="sp-body">
     <textarea class="sp-textarea" id="sp-lyrics-input" placeholder="ここに歌詞を貼り付け／入力"></textarea>
@@ -2268,17 +2271,51 @@ function mergedSongs(){
   return [...SONGS.map(s=>({...s, isUser:false})), ...USER_SONGS.map(s=>({...s, isUser:true}))];
 }
 
+/* newsong-modalは「新規作成」と「曲名/アーティスト名の編集(リネーム)」の両方で共用する。
+   newSongModalModeで分岐する。 */
+let newSongModalMode = 'create'; // 'create' | 'rename'
+let renamingSongId = null;
+
 function openNewSongModal(){
+  newSongModalMode = 'create';
+  renamingSongId = null;
+  document.getElementById('newsong-modal-title').textContent = '🎵 新しい曲';
   document.getElementById('newsong-title').value='';
   document.getElementById('newsong-artist').value='';
+  document.getElementById('newsong-confirm-btn').textContent = '次へ（歌詞を入力）';
+  document.getElementById('newsong-modal').classList.add('open');
+}
+function openRenameSongModal(){
+  if(!editingSong) return;
+  newSongModalMode = 'rename';
+  renamingSongId = editingSong.id;
+  document.getElementById('newsong-modal-title').textContent = '✎ 曲名を編集';
+  document.getElementById('newsong-title').value = editingSong.title;
+  document.getElementById('newsong-artist').value = editingSong.artist;
+  document.getElementById('newsong-confirm-btn').textContent = '保存';
   document.getElementById('newsong-modal').classList.add('open');
 }
 function closeNewSongModal(){ document.getElementById('newsong-modal').classList.remove('open'); }
 document.getElementById('newsong-modal').addEventListener('click', e=>{ if(e.target===document.getElementById('newsong-modal')) closeNewSongModal(); });
-function createNewSong(){
+function confirmNewSongModal(){
   const title = document.getElementById('newsong-title').value.trim();
   const artist = document.getElementById('newsong-artist').value.trim();
   if(!title){ alert('曲名を入力してください'); return; }
+
+  if(newSongModalMode==='rename'){
+    const song = findUserSong(renamingSongId);
+    if(!song){ closeNewSongModal(); return; }
+    song.title = title;
+    song.artist = artist;
+    saveUserSongs();
+    closeNewSongModal();
+    if(editingSong && editingSong.id===song.id){
+      document.getElementById('sp-edit-title').textContent = song.title + (song.artist ? '　'+song.artist : '');
+    }
+    buildSongsView();
+    return;
+  }
+
   const song = { id: 'us-'+Date.now()+'-'+Math.floor(Math.random()*10000), title, artist, lyrics:[], tags:[], progression:[], strumPattern:[] };
   USER_SONGS.push(song);
   saveUserSongs();
