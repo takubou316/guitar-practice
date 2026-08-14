@@ -658,6 +658,7 @@ body.le-prev-on .le-preview-content { display:flex; flex-direction:column; align
         <button class="sp-btn" id="sp-strum-down" style="flex:1; font-size:18px;">↓</button>
         <button class="sp-btn" id="sp-strum-up" style="flex:1; font-size:18px;">↑</button>
         <button class="sp-btn" id="sp-strum-mute" style="flex:1; font-size:18px;">✕</button>
+        <button class="sp-btn" id="sp-strum-wave" style="flex:1; font-size:18px;">〜</button>
       </div>
       <div class="sp-row">
         <button class="sp-btn" id="sp-strum-undo" style="flex:1;">1つ戻す</button>
@@ -2420,6 +2421,7 @@ function spAddStroke(sym){
 document.getElementById('sp-strum-down').onclick = ()=> spAddStroke('↓');
 document.getElementById('sp-strum-up').onclick = ()=> spAddStroke('↑');
 document.getElementById('sp-strum-mute').onclick = ()=> spAddStroke('✕');
+document.getElementById('sp-strum-wave').onclick = ()=> spAddStroke('〜');
 document.getElementById('sp-strum-undo').onclick = ()=>{
   if(!editingSong) return;
   editingSong.strumPattern = (editingSong.strumPattern||[]).slice(0,-1);
