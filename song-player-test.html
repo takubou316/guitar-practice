@@ -1,0 +1,681 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>実験用: 曲プレイヤー プロトタイプ</title>
+<style>
+  :root{
+    --bg:#12151a; --panel:#1c2129; --panel2:#232a35; --line:#2e3644;
+    --text:#e8ecf2; --sub:#8b95a5; --accent:#4a9eff; --accent2:#ff9f4a;
+    --tag-bg:#2c5a8a; --tag-text:#cfe6ff; --danger:#e2564f;
+  }
+  *{box-sizing:border-box;}
+  /* ボタン連打がダブルタップとみなされてiOS Safariのズームジェスチャーが発火するのを防ぐ。
+     manipulationはシングルタップの反応・スクロールは残したまま、ダブルタップズームだけ無効化する。
+     viewportのuser-scalable=noだけでは機種/iOSバージョンによって効かないことがあるための保険。 */
+  button, .ch.tappable, .tag-slot.editable{ touch-action:manipulation; }
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Yu Gothic",sans-serif;
+    padding-bottom:80px;
+  }
+  header{
+    padding:14px 16px 10px; position:sticky; top:0; background:var(--bg); z-index:10;
+    border-bottom:1px solid var(--line);
+  }
+  h1{font-size:15px; margin:0 0 10px; color:var(--sub); font-weight:600;}
+  .tabs{display:flex; gap:8px;}
+  .tab-btn{
+    flex:1; padding:9px 0; border-radius:8px; border:1px solid var(--line);
+    background:var(--panel); color:var(--sub); font-size:14px; font-weight:600;
+  }
+  .tab-btn.active{background:var(--accent); color:#fff; border-color:var(--accent);}
+  main{padding:14px 16px;}
+  section{display:none;}
+  section.active{display:block;}
+
+  textarea{
+    width:100%; min-height:110px; background:var(--panel); color:var(--text);
+    border:1px solid var(--line); border-radius:10px; padding:10px;
+    resize:vertical; line-height:1.6; font-size:16px;
+  }
+  .btn{
+    padding:9px 14px; border-radius:8px; border:1px solid var(--line);
+    background:var(--panel2); color:var(--text); font-size:14px; font-weight:600;
+  }
+  .btn.primary{background:var(--accent); border-color:var(--accent); color:#fff;}
+  .btn.danger{background:var(--danger); border-color:var(--danger); color:#fff;}
+  .btn.small{padding:5px 10px; font-size:12px;}
+  .row{display:flex; gap:8px; margin-top:8px; flex-wrap:wrap;}
+
+  .hint{color:var(--sub); font-size:12px; margin:6px 0 12px; line-height:1.6;}
+  #lyricsChangedNotice{
+    background:rgba(226,86,79,.15); border:1px solid var(--danger); color:var(--text);
+    font-size:12px; padding:8px 10px; border-radius:8px; margin-top:8px; line-height:1.5;
+  }
+
+  #lyricPreview{
+    background:var(--panel); border:1px solid var(--line); border-radius:10px;
+    padding:14px 10px; margin-top:10px;
+  }
+  /* 文字1つ1つに「その文字専用のコード表示スロット(tag-slot)」を直接くっつけて1ユニットにする方式。
+     以前はコード段と歌詞段を別の行として重ねてpx位置だけで揃えていたが、歌詞が画面幅で折り返される
+     とコードの位置が合わなくなる致命的なバグがあった（折り返し後のズレ）。ch-unitをinline-flexの
+     縦積みにして文字と一緒に1つの単位として扱えば、折り返してもコードは常にその文字の真上に付いてくる。 */
+  .line{ margin-bottom:2px; line-height:1; }
+  .ch-unit{ display:inline-flex; flex-direction:column; align-items:center; vertical-align:top; }
+  .tag-slot{
+    min-height:18px; line-height:18px; font-size:13px; font-weight:700;
+    padding:0 3px; border-radius:4px; white-space:nowrap; margin-bottom:1px;
+  }
+  .tag-slot.filled{ background:var(--tag-bg); color:var(--tag-text); }
+  .tag-slot.filled.editable{ cursor:pointer; }
+  .tag-slot.filled.selected-tag{ background:var(--accent2); color:#241300; box-shadow:0 2px 6px rgba(0,0,0,.4); }
+  #tagEditControls{display:none; flex-wrap:wrap; gap:6px;}
+  #tagEditControls .btn{flex:1; min-width:70px;}
+  .ch{ font-size:17px; line-height:1.5; white-space:pre; }
+  .ch.selected{ background:var(--accent2); color:#1a1200; border-radius:2px; }
+  .ch.tappable{ cursor:pointer; }
+  /* 各行の最後（最後の文字より後ろ）＝空行(間奏など)にもコードを置けるようにするための
+     タップ可能な余白マーカー。読んでる時にはほぼ目立たない程度の薄さにしてある */
+  .ch.end-marker{ opacity:.3; min-width:12px; display:inline-block; text-align:center; }
+
+  /* 長い歌詞だと途中でタップするたびパレットまでスクロールが必要になっていたため、
+     画面下に固定して常に押せる状態にする。selectedStatusで「今どこを選択中か」も
+     スクロール位置に関係なく確認できるようにする。 */
+  #paletteDock{
+    position:fixed; left:0; right:0; bottom:0; z-index:20;
+    background:var(--panel); border-top:1px solid var(--line);
+    padding:8px 10px calc(8px + env(safe-area-inset-bottom));
+  }
+  #selectedStatus{
+    font-size:12px; color:var(--sub); margin-bottom:6px; min-height:16px;
+  }
+  #selectedStatus.active{ color:var(--accent2); font-weight:700; }
+  #chordPalette{
+    display:flex; flex-wrap:wrap; gap:6px;
+    max-height:32vh; overflow-y:auto;
+  }
+  #chordPalette button{
+    padding:7px 10px; border-radius:7px; border:1px solid var(--line);
+    background:var(--panel2); color:var(--text); font-size:14px; font-weight:700;
+  }
+  #chordPalette button:disabled{opacity:.35;}
+
+  #progressionPreview{
+    margin-top:14px; padding:10px; background:var(--panel); border-radius:10px;
+    border:1px solid var(--line); font-size:13px; color:var(--sub); line-height:1.7;
+    margin-bottom:38vh; /* 固定パレットの下に隠れないよう、最後まで見える余白を確保 */
+  }
+  #progressionPreview b{color:var(--text);}
+
+  #playScroll{
+    height:52vh; overflow-y:auto; background:var(--panel); border:1px solid var(--line);
+    border-radius:10px; padding:16px 12px; margin-top:10px;
+  }
+  /* 自動スクロール中はscrollTop(整数pxに丸められがち)ではなくtransformで動かす。
+     transformはサブピクセル単位でGPU合成されるため、遅い速度でもガタつかない。
+     一時停止していない間の手動スワイプはこれまで通りネイティブのscrollTopで効く。 */
+  #playInner{ will-change:transform; }
+  .ctrl-group{
+    background:var(--panel); border:1px solid var(--line); border-radius:10px;
+    padding:10px 12px; margin-top:10px;
+  }
+  .ctrl-group h3{margin:0 0 8px; font-size:13px; color:var(--sub);}
+  .ctrl-row{display:flex; align-items:center; gap:10px; margin-top:6px;}
+  .ctrl-row label{font-size:13px; color:var(--sub); width:88px; flex-shrink:0;}
+  .ctrl-row input[type=range]{flex:1;}
+  .ctrl-row input[type=number]{
+    width:64px; background:var(--panel2); color:var(--text); border:1px solid var(--line);
+    border-radius:6px; padding:5px; font-size:16px;
+  }
+  .val{font-size:12px; color:var(--sub); width:44px; text-align:right;}
+  /* ドラッグでのスライダー微調整はタッチだと狙った値に止めにくいという指摘があったため、
+     速度調整は「±ボタンを押した回数だけ一定量変わる」ステッパー方式にした */
+  .stepper{display:flex; align-items:center; gap:10px; flex:1;}
+  .stepper .btn{padding:8px 16px; font-size:18px; font-weight:700; line-height:1;}
+  .stepper-val{flex:1; text-align:center; font-size:15px; font-weight:700;}
+  .preset-btn{flex:1;}
+  .mode-toggle{display:flex; gap:6px; margin-bottom:8px;}
+  .mode-toggle button{flex:1; padding:7px; border-radius:7px; border:1px solid var(--line); background:var(--panel2); color:var(--sub); font-size:13px; font-weight:600;}
+  .mode-toggle button.active{background:var(--accent2); color:#241300; border-color:var(--accent2);}
+  #playToggle{width:100%; padding:12px; margin-top:10px; font-size:15px;}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>実験用プロトタイプ（本実装ではない・index.htmlとは無関係）</h1>
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="input">① 入力</button>
+    <button class="tab-btn" data-tab="play">② 再生</button>
+  </div>
+</header>
+
+<main>
+  <!-- ===== 入力タブ ===== -->
+  <section id="tab-input" class="active">
+    <textarea id="rawLyrics" placeholder="ここに歌詞を貼り付け／入力（テスト用のダミー文でOK）"></textarea>
+    <div class="row">
+      <button class="btn" id="btnSample">ダミー歌詞を挿入</button>
+      <button class="btn primary" id="btnRender">反映してタップ入力へ</button>
+      <button class="btn" id="btnClearTags">配置クリア</button>
+    </div>
+    <div id="lyricsChangedNotice" style="display:none;"></div>
+    <div class="hint">
+      歌詞を反映すると下にタップできる文字が並ぶ。<b>①コードを乗せたい文字をタップ→②下のコードパレットをタップ</b>で、その文字の位置にコードが差し込まれる。既に置いてあるコードタグをタップすると削除できる。
+    </div>
+
+    <div id="lyricPreview"></div>
+
+    <div id="progressionPreview">まだコードが配置されていません</div>
+
+    <!-- position:fixedなので画面下に張り付く。section内に置くのは、
+         再生タブに切り替えた時section自体がdisplay:noneになるとfixedの子要素も
+         連動して消えてくれる（＝タブ切替のたびに個別で出し分けしなくて良い）ため -->
+    <div id="paletteDock">
+      <div id="selectedStatus">文字をタップしてください</div>
+      <div id="chordPalette"></div>
+      <div id="tagEditControls">
+        <button id="tagMoveLeft" class="btn">◀ 左へ</button>
+        <button id="tagMoveRight" class="btn">右へ ▶</button>
+        <button id="tagDelete" class="btn danger">✕ 削除</button>
+        <button id="tagDeselect" class="btn">選択解除</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== 再生タブ ===== -->
+  <section id="tab-play">
+    <div class="ctrl-group">
+      <div class="mode-toggle">
+        <button id="modeManual" class="active">手動速度</button>
+        <button id="modeBpm">BPM連動</button>
+      </div>
+      <div id="manualCtrls">
+        <div class="ctrl-row">
+          <label>読む速さ</label>
+          <div class="stepper">
+            <button id="secPerLineMinus" class="btn small">−</button>
+            <span class="stepper-val" id="secPerLineVal">2.5秒/行</span>
+            <button id="secPerLinePlus" class="btn small">＋</button>
+          </div>
+        </div>
+        <div class="row">
+          <button class="btn small preset-btn" data-sec="4.5">ゆっくり</button>
+          <button class="btn small preset-btn" data-sec="2.5">ふつう</button>
+          <button class="btn small preset-btn" data-sec="1.3">はやい</button>
+        </div>
+      </div>
+      <div id="bpmCtrls" style="display:none;">
+        <div class="ctrl-row">
+          <label>BPM</label>
+          <input type="number" id="bpmInput" value="90" min="30" max="240">
+        </div>
+        <div class="ctrl-row">
+          <label>1拍の移動量</label>
+          <div class="stepper">
+            <button id="perBeatMinus" class="btn small">−</button>
+            <span class="stepper-val" id="perBeatVal">14px</span>
+            <button id="perBeatPlus" class="btn small">＋</button>
+          </div>
+        </div>
+      </div>
+      <button class="btn primary" id="playToggle">▶ 再生開始</button>
+    </div>
+
+    <div id="playScroll"><div id="playInner"></div></div>
+  </section>
+</main>
+
+<script>
+/* ---------- 状態 ---------- */
+let lines = [];              // string[]
+let tags = [];                // {line, ch, chord}
+let selected = null;          // {line, ch} | null  … 未配置の文字位置を選択中（新規配置モード）
+let selectedTag = null;       // tags[i]への参照 | null  … 配置済みタグを選択中（編集モード）
+
+const CHORD_PALETTE = ["C","G","Am","Em","D","E","A","F","Dm","G7","E7","D7","C7","Bm","B7","Dm7","Cadd9","Dsus2","Asus2"];
+
+/* ダミー歌詞（架空・著作権フリーの自作テスト文。実在曲の歌詞ではない。
+   1曲ぶんのスクロール量を試せるよう、Aメロ/サビ/Bメロ的な繰り返し構造にして長さを確保した） */
+const SAMPLE = `朝の窓に光が差した
+まだ眠い目をこすりながら
+今日という日を数えてみる
+少しずつ歩き出す
+
+坂道の途中で振り返る
+昨日より少し前にいる
+止まらなくていい急がなくていい
+自分のペースで進む
+
+雲の形を数えながら
+何も考えずに歩いた
+遠くの音が近づいてくる
+それだけで胸が鳴る
+
+坂道の途中で振り返る
+昨日より少し前にいる
+止まらなくていい急がなくていい
+自分のペースで進む
+
+夜になれば街の灯りが
+一つずつ点いていくのを見た
+明日もきっとこうして歩く
+それでいいと思えた
+
+止まらなくていい急がなくていい
+自分のペースで進む`;
+
+/* ---------- タブ切替 ---------- */
+document.querySelectorAll('.tab-btn').forEach(btn=>{
+  btn.onclick = ()=>{
+    const playWasActive = document.getElementById('tab-play').classList.contains('active');
+    if(playWasActive && btn.dataset.tab!=='play' && playing){
+      playing = false;
+      stopScroll();
+      document.getElementById('playToggle').textContent = '▶ 再生開始';
+    }
+    document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+    document.querySelectorAll('main > section').forEach(s=>s.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('tab-'+btn.dataset.tab).classList.add('active');
+    if(btn.dataset.tab==='play' && !playWasActive){
+      // 入力直後の300msデバウンス待ちを残したまま切り替えると、古い歌詞が再生側に描画されるためここで確定する
+      commitLyrics();
+      renderPlay();
+    }
+  };
+});
+
+/* ---------- 配置済みコードタグ: タップで「編集選択」状態にする ----------
+   長押し→スライドでの位置調整はiOS実機で反応しなかった（タッチイベントの奪い合いが起きている
+   可能性が高い）ため撤回。代わりに、タップしたタグを選択状態にして、固定パレット側に出る
+   ◀/▶/削除ボタンで操作する確実な方式に変更した。 */
+function selectTag(tagData){
+  selectedTag = tagData;
+  selected = null;
+  renderInput();
+}
+
+function lineChars(lineText){
+  return [...lineText];
+}
+
+function lineCharAt(lineText, ch){
+  return lineChars(lineText)[ch] ?? '(行末)';
+}
+
+/* ---------- 歌詞1行分のDOMを組み立てる（入力タブ・再生タブ共通） ----------
+   文字ごとに「コード表示スロット(tag-slot)＋文字(ch)」を1つのinline-flexユニット(ch-unit)にまとめる。
+   これにより、行が画面幅で折り返されても、コードは常にそのユニットの文字と一緒に折り返し先へ移動する
+   （以前の「コード段と歌詞段を別々に重ねてpx位置だけで揃える」方式だと、折り返し発生時にコードの
+   位置が文字と食い違う不具合があった）。
+   ci は 0〜文字数（＝最後の文字の"後ろ"も含む）まで回す。これにより、
+   ①行の最後の文字より後ろにコードを置けない、②空行(間奏)にコードを置けない、の2つの制約も
+   同時に解消している（空行はlength===0なのでci=0の1つだけがその行唯一の置き場所になる）。 */
+function buildLineEl(lineText, li, tappable){
+  const lineEl = document.createElement('div');
+  lineEl.className = 'line';
+  const lineTags = tags.filter(t=>t.line===li);
+  const chars = lineChars(lineText);
+
+  for(let ci=0; ci<=chars.length; ci++){
+    const unit = document.createElement('span');
+    unit.className = 'ch-unit';
+
+    const tagSlot = document.createElement('span');
+    tagSlot.className = 'tag-slot';
+    const t = lineTags.find(x=>x.ch===ci);
+    if(t){
+      tagSlot.classList.add('filled');
+      tagSlot.textContent = t.chord;
+      if(tappable){
+        tagSlot.classList.add('editable');
+        if(selectedTag===t) tagSlot.classList.add('selected-tag');
+        tagSlot.onclick = ()=> selectTag(t);
+      }
+    }
+    unit.appendChild(tagSlot);
+
+    const chEl = document.createElement('span');
+    const isEnd = ci===chars.length;
+    chEl.className = 'ch' + (isEnd?' end-marker':'') + (tappable?' tappable':'');
+    chEl.textContent = isEnd ? '·' : chars[ci];
+    if(tappable){
+      if(selected && selected.line===li && selected.ch===ci) chEl.classList.add('selected');
+      chEl.onclick = ()=>{
+        selected = {line:li, ch:ci};
+        selectedTag = null;
+        renderInput();
+      };
+    }
+    unit.appendChild(chEl);
+
+    lineEl.appendChild(unit);
+  }
+  return lineEl;
+}
+
+/* ---------- 入力タブ: 歌詞反映 ---------- */
+document.getElementById('btnSample').onclick = ()=>{
+  document.getElementById('rawLyrics').value = SAMPLE;
+};
+/* 歌詞編集後にコード位置がズレる問題への対応: タグは{line, ch}という「行番号+文字番号」を
+   持つだけなので、コード配置済みの行の文字を後から書き換えると、番号は同じでも指してる文字が
+   変わってしまい、見た目上は別の文字にコードがズレて付いたままになる。
+   LCS等の高度な差分照合はプロトタイプの複雑さに見合わないため採用せず、「編集前後でその行の
+   テキストが完全一致するか」だけを見るシンプルな判定にする。変わった行のタグは安全側に倒して
+   自動的に削除し、無言で位置がズレたまま残る事故を防ぐ（変わっていない行のタグはそのまま残る）。 */
+function commitLyrics(){
+  if(commitTimer!==null){
+    clearTimeout(commitTimer);
+    commitTimer = null;
+  }
+  const raw = document.getElementById('rawLyrics').value;
+  const newLines = raw.split('\n').filter(l=>l.length || true);
+  const oldLines = lines;
+
+  let droppedCount = 0;
+  tags = tags.filter(t=>{
+    const unchanged = t.line < oldLines.length && t.line < newLines.length && oldLines[t.line] === newLines[t.line];
+    if(!unchanged) droppedCount++;
+    return unchanged;
+  });
+
+  lines = newLines;
+  tags = tags.filter(t=>t.line < lines.length && t.ch <= lineChars(lines[t.line]).length);
+  selected = null;
+  selectedTag = null;
+  renderInput();
+  if(droppedCount>0) showLyricsChangedNotice(droppedCount);
+}
+document.getElementById('btnRender').onclick = commitLyrics;
+
+let lyricsChangedNoticeTimer = null;
+function showLyricsChangedNotice(count){
+  const el = document.getElementById('lyricsChangedNotice');
+  el.textContent = `歌詞を編集したため、変更された行のコード配置を${count}件削除しました`;
+  el.style.display = 'block';
+  clearTimeout(lyricsChangedNoticeTimer);
+  lyricsChangedNoticeTimer = setTimeout(()=>{ el.style.display='none'; }, 4000);
+}
+
+/* iOS Safariでは、キーボード表示中に他のボタンを最初にタップすると
+   "キーボードを閉じるだけ"でクリックとして扱われないことがある（貼り付け後
+   「反映」ボタンが反応しないように見える不具合の原因）。ボタン操作に頼らず、
+   貼り付け/入力した瞬間(input イベント)に自動で反映させることで回避する。 */
+let commitTimer = null;
+document.getElementById('rawLyrics').addEventListener('input', ()=>{
+  clearTimeout(commitTimer);
+  commitTimer = setTimeout(commitLyrics, 300);
+});
+document.getElementById('btnClearTags').onclick = ()=>{
+  tags = [];
+  selected = null;
+  selectedTag = null;
+  renderInput();
+};
+
+/* ---------- コードパレット生成 ---------- */
+const paletteEl = document.getElementById('chordPalette');
+CHORD_PALETTE.forEach(name=>{
+  const b = document.createElement('button');
+  b.textContent = name;
+  b.onclick = ()=>{
+    if(!selected) return;
+    // 同じ位置に既にタグがあれば置き換え
+    tags = tags.filter(t=>!(t.line===selected.line && t.ch===selected.ch));
+    tags.push({line:selected.line, ch:selected.ch, chord:name});
+    selected = null;
+    renderInput();
+  };
+  paletteEl.appendChild(b);
+});
+function updateDock(){
+  const statusEl = document.getElementById('selectedStatus');
+  const editEl = document.getElementById('tagEditControls');
+  if(selectedTag){
+    // 配置済みタグを選択中 → コードパレットの代わりに◀/▶/削除を出す
+    paletteEl.style.display = 'none';
+    editEl.style.display = 'flex';
+    const ch = lines[selectedTag.line] === undefined
+      ? '(行末)' : lineCharAt(lines[selectedTag.line], selectedTag.ch);
+    statusEl.textContent = `編集中: 「${selectedTag.chord}」（「${ch}」の位置）`;
+    statusEl.classList.add('active');
+  } else {
+    paletteEl.style.display = 'flex';
+    editEl.style.display = 'none';
+    paletteEl.querySelectorAll('button').forEach(b=> b.disabled = !selected);
+    if(selected){
+      const ch = lines[selected.line] === undefined
+        ? '(行末)' : lineCharAt(lines[selected.line], selected.ch);
+      statusEl.textContent = `選択中: 「${ch}」の位置 → コードをタップ`;
+      statusEl.classList.add('active');
+    } else {
+      statusEl.textContent = '歌詞の文字をタップしてください';
+      statusEl.classList.remove('active');
+    }
+  }
+}
+document.getElementById('tagMoveLeft').onclick = ()=>{
+  if(!selectedTag) return;
+  const newCh = Math.max(0, selectedTag.ch-1);
+  tags = tags.filter(t=> t===selectedTag || !(t.line===selectedTag.line && t.ch===newCh));
+  selectedTag.ch = newCh;
+  renderInput();
+};
+document.getElementById('tagMoveRight').onclick = ()=>{
+  if(!selectedTag) return;
+  const lineLen = lines[selectedTag.line] === undefined
+    ? 0 : lineChars(lines[selectedTag.line]).length;
+  const newCh = Math.min(lineLen, selectedTag.ch+1);
+  tags = tags.filter(t=> t===selectedTag || !(t.line===selectedTag.line && t.ch===newCh));
+  selectedTag.ch = newCh;
+  renderInput();
+};
+document.getElementById('tagDelete').onclick = ()=>{
+  if(!selectedTag) return;
+  tags = tags.filter(t=>t!==selectedTag);
+  selectedTag = null;
+  renderInput();
+};
+document.getElementById('tagDeselect').onclick = ()=>{
+  selectedTag = null;
+  renderInput();
+};
+
+/* ---------- 入力タブ: 歌詞+コード描画（タップ可能） ---------- */
+function renderInput(){
+  const wrap = document.getElementById('lyricPreview');
+  wrap.innerHTML = '';
+  lines.forEach((lineText, li)=>{
+    wrap.appendChild(buildLineEl(lineText, li, true));
+  });
+  updateDock();
+  renderProgressionPreview();
+}
+
+function renderProgressionPreview(){
+  const el = document.getElementById('progressionPreview');
+  const sorted = [...tags].sort((a,b)=> a.line-b.line || a.ch-b.ch);
+  if(sorted.length===0){ el.textContent = 'まだコードが配置されていません'; return; }
+  el.innerHTML = '<b>自動導出されたコード進行:</b><br>' + sorted.map(t=>t.chord).join(' → ');
+}
+
+/* ---------- 再生タブ: 読み取り専用描画 ---------- */
+function renderPlay(){
+  const wrap = document.getElementById('playInner');
+  wrap.innerHTML = '';
+  lines.forEach((lineText, li)=>{
+    wrap.appendChild(buildLineEl(lineText, li, false));
+  });
+}
+
+/* ---------- 再生タブ: モード切替 ---------- */
+let scrollMode = 'manual'; // 'manual' | 'bpm'
+document.getElementById('modeManual').onclick = ()=>{
+  scrollMode='manual';
+  document.getElementById('modeManual').classList.add('active');
+  document.getElementById('modeBpm').classList.remove('active');
+  document.getElementById('manualCtrls').style.display='';
+  document.getElementById('bpmCtrls').style.display='none';
+  reanchorScroll();
+};
+document.getElementById('modeBpm').onclick = ()=>{
+  scrollMode='bpm';
+  document.getElementById('modeBpm').classList.add('active');
+  document.getElementById('modeManual').classList.remove('active');
+  document.getElementById('manualCtrls').style.display='none';
+  document.getElementById('bpmCtrls').style.display='';
+  reanchorScroll();
+};
+
+/* 「px/秒」という単位がピンと来ないという指摘のため、体感で分かる「1行を何秒で流すか(秒/行)」を
+   ユーザーには見せて、実際のpx/秒への変換は再生時に実測した行の高さから逆算する（avgLineHeightPx）。
+   こうすることでフォントサイズが変わっても体感速度が変わらない。 */
+let secPerLine = 2.5;
+function updateSecPerLineDisplay(){
+  document.getElementById('secPerLineVal').textContent = secPerLine.toFixed(1)+'秒/行';
+}
+document.getElementById('secPerLineMinus').onclick = ()=>{
+  secPerLine = Math.max(0.5, Math.round((secPerLine-0.3)*10)/10);
+  updateSecPerLineDisplay();
+  reanchorScroll();
+};
+document.getElementById('secPerLinePlus').onclick = ()=>{
+  secPerLine = Math.min(10, Math.round((secPerLine+0.3)*10)/10);
+  updateSecPerLineDisplay();
+  reanchorScroll();
+};
+document.querySelectorAll('.preset-btn').forEach(b=>{
+  b.onclick = ()=>{
+    secPerLine = Number(b.dataset.sec);
+    updateSecPerLineDisplay();
+    reanchorScroll();
+  };
+});
+updateSecPerLineDisplay();
+
+let perBeatPx = 14;
+function updatePerBeatDisplay(){
+  document.getElementById('perBeatVal').textContent = perBeatPx+'px';
+}
+document.getElementById('perBeatMinus').onclick = ()=>{
+  perBeatPx = Math.max(2, perBeatPx-2);
+  updatePerBeatDisplay();
+  reanchorScroll();
+};
+document.getElementById('perBeatPlus').onclick = ()=>{
+  perBeatPx = Math.min(80, perBeatPx+2);
+  updatePerBeatDisplay();
+  reanchorScroll();
+};
+document.getElementById('bpmInput').oninput = reanchorScroll;
+
+/* ---------- 再生タブ: スクロール駆動 ----------
+   「がくがくする」問題への対応: 前は50ms(=20fps)間隔のsetIntervalだけで動かしていたため粗かった。
+   requestAnimationFrame(60fps)を主駆動にして滑らかにしつつ、非表示タブでrAFが完全停止する既知の罠
+   （本体index.htmlの「流れる」タブと同じ）への保険として低頻度setIntervalも並走させる二重駆動にする。
+   位置は「起点時刻・起点scrollTopからの経過時間×速度」で毎回絶対値として計算し直す(idempotent)ため、
+   rAFとsetIntervalが近いタイミングで両方発火しても値が二重に加算されるようなズレは起きない。
+   BPMモードも「1拍の移動量 ÷ 1拍の秒数」で実質的なpx/秒に換算し、同じ滑らかな連続スクロールにする
+   （＝拍ごとにガクッと飛ぶのをやめ、テンポに応じた速さの滑らかな流れに統一）。 */
+let playing = false;
+let rafId = null;
+let intervalFallback = null;
+let scrollAnchorTime = null;
+let scrollOffset = 0; // 再生開始(または直近のbake)からの追加移動量。transformで表現する
+
+function avgLineHeightPx(){
+  const inner = document.getElementById('playInner');
+  const n = inner.querySelectorAll('.line').length;
+  return n ? inner.scrollHeight / n : 40; // 行が無い場合の保険値
+}
+function currentSpeedPxPerSec(){
+  if(scrollMode==='manual'){
+    return avgLineHeightPx() / Math.max(0.2, secPerLine);
+  } else {
+    const enteredBpm = Number(document.getElementById('bpmInput').value);
+    const bpm = Math.min(240, Math.max(30, Number.isFinite(enteredBpm) && enteredBpm>0 ? enteredBpm : 90));
+    return perBeatPx / (60/bpm);
+  }
+}
+function tickScroll(){
+  if(!playing || scrollAnchorTime===null) return;
+  const container = document.getElementById('playScroll');
+  const inner = document.getElementById('playInner');
+  const elapsed = (performance.now() - scrollAnchorTime) / 1000;
+  let offset = currentSpeedPxPerSec() * elapsed;
+  const maxOffset = Math.max(0, inner.scrollHeight - container.clientHeight - container.scrollTop);
+  if(offset > maxOffset) offset = maxOffset;
+  scrollOffset = offset;
+  inner.style.transform = `translateY(${-offset}px)`;
+}
+/* 現在のtransformぶんの移動量を、実際のscrollTop(ネイティブ)側へ焼き込んで0に戻す。
+   これをしないと、一時停止中に指でスワイプした位置とtransformの起点がズレてしまう。 */
+function bakeOffsetIntoScrollTop(){
+  const container = document.getElementById('playScroll');
+  const inner = document.getElementById('playInner');
+  if(scrollOffset !== 0) container.scrollTop += scrollOffset;
+  inner.style.transform = 'translateY(0px)';
+  scrollOffset = 0;
+}
+function reanchorScroll(){
+  if(!playing) return;
+  bakeOffsetIntoScrollTop();
+  scrollAnchorTime = performance.now();
+}
+
+document.getElementById('playToggle').onclick = ()=>{
+  playing = !playing;
+  const btn = document.getElementById('playToggle');
+  if(playing){
+    btn.textContent = '■ 停止';
+    startScroll();
+  } else {
+    btn.textContent = '▶ 再生開始';
+    stopScroll();
+  }
+};
+
+function startScroll(){
+  scrollOffset = 0;
+  scrollAnchorTime = performance.now();
+  const loop = ()=>{
+    if(!playing) return;
+    tickScroll();
+    rafId = requestAnimationFrame(loop);
+  };
+  rafId = requestAnimationFrame(loop);
+  intervalFallback = setInterval(tickScroll, 400);
+}
+function stopScroll(){
+  if(rafId!==null) cancelAnimationFrame(rafId);
+  if(intervalFallback!==null) clearInterval(intervalFallback);
+  rafId=null; intervalFallback=null; scrollAnchorTime=null;
+  bakeOffsetIntoScrollTop(); // 止めた位置から手動スクロールを続けられるようにする
+}
+
+/* 画面ロック・アプリ切替でタブが非表示になっている間の経過時間は「無かったこと」にする。
+   scrollOffsetは起点時刻(scrollAnchorTime)からの経過時間×速度で毎回計算し直す方式なので、
+   何もしないと復帰時に「ロックしてた分だけ一気に進む」ことになってしまう。隠れていた時間ぶん
+   起点を後ろにずらすことで、経過時間の計算から除外し、止めた場所からそのまま続きが流れるようにする。 */
+let hiddenAt = null;
+document.addEventListener('visibilitychange', ()=>{
+  if(document.hidden){
+    if(playing) hiddenAt = performance.now();
+  } else if(hiddenAt!==null){
+    if(playing && scrollAnchorTime!==null){
+      scrollAnchorTime += performance.now() - hiddenAt;
+    }
+    hiddenAt = null;
+  }
+});
+
+/* ---------- 初期表示 ---------- */
+renderInput();
+</script>
+</body>
+</html>
