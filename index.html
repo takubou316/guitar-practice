@@ -673,6 +673,17 @@ body.le-prev-on .le-preview-content { display:flex; flex-direction:column; align
       </div>
     </div>
 
+    <div class="sp-ctrl-group">
+      <div style="font-size:12px; color:var(--text3); margin-bottom:6px;">🎥 参考動画</div>
+      <div id="sp-video-status" style="font-size:12px; color:var(--text2); margin-bottom:8px;">確認中…</div>
+      <div class="sp-row">
+        <label class="sp-btn" for="sp-video-file-input" style="flex:1; text-align:center;">動画を選択</label>
+        <input type="file" id="sp-video-file-input" accept="video/*" style="position:absolute; width:1px; height:1px; opacity:0; pointer-events:none;">
+        <button class="sp-btn" id="sp-video-delete-btn" style="flex:1;">動画を削除</button>
+      </div>
+      <div class="sp-hint" style="margin:8px 0 0;">※動画データは「この曲のデータをコピー」には含まれません（端末内のみに保存されます）。</div>
+    </div>
+
     <div id="sp-lyric-preview"></div>
     <div class="sp-hint" id="sp-progression-preview">まだコードが配置されていません</div>
   </div>
@@ -695,6 +706,7 @@ body.le-prev-on .le-preview-content { display:flex; flex-direction:column; align
     <button class="sp-close-btn" onclick="closeSongPlayer()">✕</button>
   </div>
   <div class="sp-body">
+    <video id="sp-play-video" playsinline muted style="width:100%; max-height:34vh; background:#000; border-radius:var(--radius); margin-bottom:10px; display:none;"></video>
     <div id="sp-play-strum" style="text-align:center; font-size:22px; letter-spacing:8px; color:var(--accent); min-height:28px;"></div>
     <div class="sp-ctrl-group">
       <div class="sp-mode-toggle">
@@ -2445,8 +2457,89 @@ function openSongEditor(song){
   spSelected = null; spSelectedTag = null;
   spRenderEditor();
   spRenderStrumDisplay();
+  spRefreshVideoStatus();
   document.getElementById('sp-edit-overlay').classList.add('open');
 }
+
+/* ── 参考動画（曲ごとにIndexedDBへ保存） ──
+   動画ファイルはlocalStorageの容量(5-10MB程度)に収まらないことがあるためIndexedDBを使う。
+   USER_SONGSのJSONスキーマ自体には含めない（「この曲のデータをコピー」の対象外、端末内のみ）。
+   IndexedDBが使えない環境でも他の機能を巻き込んで壊さないよう、呼び出し側は必ずtry/catchで守る。 */
+const SP_VIDEO_DB_NAME = 'guitar-practice-videos';
+const SP_VIDEO_STORE = 'videos';
+function spOpenVideoDB(){
+  return new Promise((resolve, reject)=>{
+    if(!window.indexedDB){ reject(new Error('IndexedDB unavailable')); return; }
+    const req = indexedDB.open(SP_VIDEO_DB_NAME, 1);
+    req.onupgradeneeded = ()=>{ req.result.createObjectStore(SP_VIDEO_STORE); };
+    req.onsuccess = ()=> resolve(req.result);
+    req.onerror = ()=> reject(req.error);
+  });
+}
+async function spSaveSongVideo(songId, file){
+  const db = await spOpenVideoDB();
+  return new Promise((resolve, reject)=>{
+    const tx = db.transaction(SP_VIDEO_STORE, 'readwrite');
+    tx.objectStore(SP_VIDEO_STORE).put(file, songId);
+    tx.oncomplete = ()=>{ db.close(); resolve(); };
+    tx.onerror = ()=>{ db.close(); reject(tx.error); };
+  });
+}
+async function spLoadSongVideoBlob(songId){
+  const db = await spOpenVideoDB();
+  return new Promise((resolve, reject)=>{
+    const tx = db.transaction(SP_VIDEO_STORE, 'readonly');
+    const req = tx.objectStore(SP_VIDEO_STORE).get(songId);
+    req.onsuccess = ()=>{ db.close(); resolve(req.result || null); };
+    req.onerror = ()=>{ db.close(); reject(req.error); };
+  });
+}
+async function spDeleteSongVideo(songId){
+  const db = await spOpenVideoDB();
+  return new Promise((resolve, reject)=>{
+    const tx = db.transaction(SP_VIDEO_STORE, 'readwrite');
+    tx.objectStore(SP_VIDEO_STORE).delete(songId);
+    tx.oncomplete = ()=>{ db.close(); resolve(); };
+    tx.onerror = ()=>{ db.close(); reject(tx.error); };
+  });
+}
+async function spRefreshVideoStatus(){
+  const statusEl = document.getElementById('sp-video-status');
+  const deleteBtn = document.getElementById('sp-video-delete-btn');
+  if(!editingSong){ return; }
+  statusEl.textContent = '確認中…';
+  deleteBtn.disabled = true;
+  try {
+    const blob = await spLoadSongVideoBlob(editingSong.id);
+    statusEl.textContent = blob ? '動画が設定されています' : '動画は設定されていません';
+    deleteBtn.disabled = !blob;
+  } catch(e){
+    statusEl.textContent = '動画機能を利用できません';
+    deleteBtn.disabled = true;
+  }
+}
+document.getElementById('sp-video-file-input').addEventListener('change', async (e)=>{
+  const file = e.target.files && e.target.files[0];
+  if(!file || !editingSong) return;
+  const statusEl = document.getElementById('sp-video-status');
+  statusEl.textContent = '保存中…';
+  try {
+    await spSaveSongVideo(editingSong.id, file);
+  } catch(err){
+    statusEl.textContent = '動画を保存できませんでした';
+    e.target.value = '';
+    return;
+  }
+  e.target.value = '';
+  spRefreshVideoStatus();
+});
+document.getElementById('sp-video-delete-btn').onclick = async ()=>{
+  if(!editingSong) return;
+  const statusEl = document.getElementById('sp-video-status');
+  statusEl.textContent = '削除中…';
+  try { await spDeleteSongVideo(editingSong.id); } catch(e){}
+  spRefreshVideoStatus();
+};
 
 /* ── ストロークパターン（曲全体で共通の1パターンのみ。行/セクションごとの個別設定は今後の課題） ──
    矢印記号を打つのはキーボードだと大変なので、↓/↑/✕(ミュート)ボタンをタップした順に追記していく方式。
@@ -2696,13 +2789,30 @@ let spScrollAnchorTime = null;
 let spScrollOffset = 0;
 let spHiddenAt = null;
 
+let spPlayVideoObjectUrl = null;
 function openSongPlayer(song){
   if(!song) return;
   playingSong = song;
   document.getElementById('sp-play-title').textContent = song.title + (song.artist ? '　'+song.artist : '');
   document.getElementById('sp-play-strum').textContent = (song.strumPattern && song.strumPattern.length) ? song.strumPattern.join(' ') : '';
   spRenderPlay();
+  spLoadPlayerVideo(song.id);
   document.getElementById('sp-play-overlay').classList.add('open');
+}
+async function spLoadPlayerVideo(songId){
+  const video = document.getElementById('sp-play-video');
+  video.style.display = 'none';
+  video.pause();
+  video.removeAttribute('src');
+  video.load();
+  if(spPlayVideoObjectUrl){ URL.revokeObjectURL(spPlayVideoObjectUrl); spPlayVideoObjectUrl = null; }
+  try {
+    const blob = await spLoadSongVideoBlob(songId);
+    if(!blob || !playingSong || playingSong.id!==songId) return; // 読み込み中に別の曲へ切り替わっていたら無視
+    spPlayVideoObjectUrl = URL.createObjectURL(blob);
+    video.src = spPlayVideoObjectUrl;
+    video.style.display = 'block';
+  } catch(e){ /* IndexedDB未対応環境等では動画無しのまま */ }
 }
 function closeSongPlayer(){
   if(spPlaying){
@@ -2710,6 +2820,12 @@ function closeSongPlayer(){
     spStopScroll();
     document.getElementById('sp-play-toggle').textContent = '▶ 再生開始';
   }
+  const video = document.getElementById('sp-play-video');
+  video.pause();
+  video.removeAttribute('src');
+  video.load();
+  video.style.display = 'none';
+  if(spPlayVideoObjectUrl){ URL.revokeObjectURL(spPlayVideoObjectUrl); spPlayVideoObjectUrl = null; }
   document.getElementById('sp-play-overlay').classList.remove('open');
   playingSong = null;
 }
@@ -2788,8 +2904,15 @@ document.addEventListener('visibilitychange', ()=>{
 document.getElementById('sp-play-toggle').onclick = ()=>{
   spPlaying = !spPlaying;
   const btn = document.getElementById('sp-play-toggle');
-  if(spPlaying){ btn.textContent='■ 停止'; spStartScroll(); }
-  else { btn.textContent='▶ 再生開始'; spStopScroll(); }
+  const video = document.getElementById('sp-play-video');
+  const hasVideo = video.style.display !== 'none' && video.src;
+  if(spPlaying){
+    btn.textContent='■ 停止'; spStartScroll();
+    if(hasVideo) video.play().catch(()=>{}); // iOSの自動再生ポリシーで拒否されても歌詞スクロールは動かす
+  } else {
+    btn.textContent='▶ 再生開始'; spStopScroll();
+    if(hasVideo) video.pause();
+  }
 };
 document.getElementById('sp-mode-manual').onclick = ()=>{
   spScrollMode='manual';
