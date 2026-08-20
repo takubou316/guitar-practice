@@ -384,6 +384,10 @@ footer.controls-bar { height: var(--ftr); flex-shrink: 0; display: flex; align-i
 .sp-block-row-lyric { font-size: 13px; color: var(--text2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sp-block-row-edit { color: var(--text3); flex-shrink: 0; }
 .sp-block-linebreak-marker { font-size: 11px; color: var(--text3); text-align: center; margin: 8px 0; }
+.sp-strum-preset-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.sp-strum-preset-chip { display: flex; align-items: center; gap: 4px; background: var(--surface2); border: 0.5px solid var(--border); border-radius: 20px; padding: 5px 6px 5px 10px; }
+.sp-strum-preset-label { font-size: 13px; color: var(--accent); letter-spacing: 1px; cursor: pointer; touch-action: manipulation; }
+.sp-strum-preset-delete { font-size: 12px; color: var(--text3); cursor: pointer; padding: 2px 4px; touch-action: manipulation; }
 .profile-modal.open { display: flex; }
 .profile-panel { background: var(--surface); border: 0.5px solid var(--border); border-radius: 20px 20px 0 0; padding: 16px; padding-bottom: calc(14px + env(safe-area-inset-bottom)); width: 100%; max-width: 520px; max-height: 75dvh; overflow-y: auto; animation: slide-up 0.22s ease; }
 .profile-panel h3 { font-size: 15px; font-weight: 700; margin-bottom: 12px; }
@@ -709,6 +713,10 @@ body.le-prev-on .le-preview-content { display:flex; flex-direction:column; align
       <button class="sp-btn" id="block-form-strum-undo" style="flex:1;">1つ戻す</button>
       <button class="sp-btn" id="block-form-strum-clear" style="flex:1;">クリア</button>
     </div>
+    <button class="sp-btn" id="block-form-strum-save" style="width:100%; margin-top:6px;">💾 今のストロークを保存</button>
+
+    <div style="font-size:12px; color:var(--text3); margin:12px 0 6px;">保存済みのストローク（タップで反映）</div>
+    <div id="block-form-strum-presets" class="sp-strum-preset-list"></div>
 
     <div style="font-size:12px; color:var(--text3); margin:12px 0 6px;">このブロックの歌詞（前奏など無い場合は空でよい）</div>
     <input class="profile-input" id="block-form-lyric" placeholder="例: ラララ" style="width:100%;">
@@ -2572,8 +2580,56 @@ function openBlockForm(index){
   document.getElementById('block-form-confirm-btn').textContent = b ? '保存する' : '追加する';
   updateBlockFormChordDisplay();
   updateBlockFormStrumDisplay();
+  renderStrumPresets();
   document.getElementById('block-form-modal').classList.add('open');
 }
+
+/* ── ストロークパターンの保存（曲を問わず端末内で共通、ワンタッチで再現するため） ── */
+const STRUM_PRESETS_KEY = 'guitar-strum-presets';
+let strumPresets = [];
+function loadStrumPresets(){
+  try { strumPresets = JSON.parse(localStorage.getItem(STRUM_PRESETS_KEY) || '[]'); } catch(e){ strumPresets = []; }
+}
+function saveStrumPresetsToStorage(){ localStorage.setItem(STRUM_PRESETS_KEY, JSON.stringify(strumPresets)); }
+function renderStrumPresets(){
+  const wrap = document.getElementById('block-form-strum-presets');
+  wrap.innerHTML = '';
+  if(strumPresets.length===0){
+    wrap.innerHTML = '<div class="sp-hint" style="margin:0;">まだ保存されたストロークはありません</div>';
+    return;
+  }
+  strumPresets.forEach((pattern, i)=>{
+    const chip = document.createElement('div');
+    chip.className = 'sp-strum-preset-chip';
+    const label = document.createElement('span');
+    label.className = 'sp-strum-preset-label';
+    label.textContent = pattern.join(' ');
+    label.onclick = ()=>{
+      blockFormStrum = [...pattern];
+      updateBlockFormStrumDisplay();
+    };
+    const del = document.createElement('span');
+    del.className = 'sp-strum-preset-delete';
+    del.textContent = '✕';
+    del.onclick = (e)=>{
+      e.stopPropagation();
+      if(!confirm('このストロークパターンを削除しますか？')) return;
+      strumPresets.splice(i,1);
+      saveStrumPresetsToStorage();
+      renderStrumPresets();
+    };
+    chip.appendChild(label); chip.appendChild(del);
+    wrap.appendChild(chip);
+  });
+}
+document.getElementById('block-form-strum-save').onclick = ()=>{
+  if(blockFormStrum.length===0){ alert('保存するストロークがありません'); return; }
+  const key = JSON.stringify(blockFormStrum);
+  if(strumPresets.some(p=>JSON.stringify(p)===key)){ alert('同じストロークは既に保存されています'); return; }
+  strumPresets.push([...blockFormStrum]);
+  saveStrumPresetsToStorage();
+  renderStrumPresets();
+};
 function closeBlockForm(){
   document.getElementById('block-form-modal').classList.remove('open');
 }
@@ -2913,6 +2969,7 @@ setAccent(accentLast);
 render(current);
 
 loadUserSongs();
+loadStrumPresets();
 
 // 前回プロフィールを復元、なければ選択画面を表示
 const _last = localStorage.getItem(LS_CURRENT);
