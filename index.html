@@ -348,15 +348,17 @@ footer.controls-bar { height: var(--ftr); flex-shrink: 0; display: flex; align-i
    1ブロック＝1つの配置済みコードタグ。フレット図・ストローク・歌詞の断片(そのコードから次の
    コードが出るまでの歌詞)をひとまとめにしたカードを常に4枚(SP_PLAY_N)表示し、進めるたびに
    カードの中身だけ差し替える(DOM自体は増減させない)。 */
-.sp-play-lane { position: relative; flex: 1; min-height: 40vh; overflow: hidden; border-radius: var(--radius); background: linear-gradient(180deg,var(--surface),var(--surface2)); border: 0.5px solid var(--border); margin-top: 10px; }
-.sp-play-marker { position: absolute; left: 12%; top: 0; bottom: 0; width: 2px; background: var(--accent); opacity: 0.55; }
-.sp-play-track { position: absolute; left: 12%; top: 50%; transform: translateY(-50%); display: flex; }
-.sp-play-tile { width: 44vw; max-width: 260px; flex-shrink: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 10px; box-sizing: border-box; opacity: 0.4; }
-.sp-play-tile:first-child { background: var(--surface2); border-radius: 10px; border: 2px solid var(--accent); opacity: 1; }
-.sp-tile-strum { font-size: 13px; letter-spacing: 2px; color: var(--accent); min-height: 16px; }
-.sp-tile-name { font-size: clamp(20px, 7vw, 30px); font-weight: 800; line-height: 1; color: var(--text); }
+/* U-FRET等を参考に「曲全体ぶんのコードカードを折り返しながら並べて縦スクロールで見る」表示に変更
+   (窓4枚だけの横スクロールは縦横どちらの向きでも見づらいとの指摘があったため撤回)。
+   カード自体のデータ(進行順・区間ごとの歌詞・引き継ぎ式ストローク)は流用し、表示方法だけ変える。 */
+.sp-play-lane { flex: 1; overflow-y: auto; border-radius: var(--radius); background: linear-gradient(180deg,var(--surface),var(--surface2)); border: 0.5px solid var(--border); margin-top: 10px; padding: 8px; }
+.sp-play-grid { display: flex; flex-wrap: wrap; gap: 6px; }
+.sp-play-card { width: 80px; flex-shrink: 0; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 3px; border-radius: 8px; opacity: 0.6; cursor: pointer; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+.sp-play-card.current { background: var(--surface2); border: 2px solid var(--accent); opacity: 1; }
+.sp-tile-strum { font-size: 10px; letter-spacing: 1px; color: var(--accent); min-height: 12px; }
+.sp-tile-name { font-size: 15px; font-weight: 800; line-height: 1; color: var(--text); }
 .sp-tile-fret { width: 100%; height: auto; }
-.sp-tile-lyric { font-size: 12px; color: var(--text2); text-align: center; word-break: break-all; min-height: 15px; }
+.sp-tile-lyric { font-size: 10px; color: var(--text2); text-align: center; word-break: break-all; min-height: 12px; }
 /* 配置済みタグに独自のストローク変更があることを示す印（外枠を目立たせるだけのシンプルな方式） */
 .sp-tag-slot.filled.has-strum { box-shadow: 0 0 0 2px var(--accent2,#ffd08a) inset; }
 #sp-tag-strum-controls { display: none; margin-top: 8px; padding-top: 8px; border-top: 0.5px solid var(--border); }
@@ -763,34 +765,8 @@ body.le-prev-on .le-preview-content { display:flex; flex-direction:column; align
       </div>
       <button class="sp-btn primary" id="sp-play-toggle" style="width:100%; padding:12px; margin-top:10px; font-size:15px;">▶ 自動再生開始</button>
     </div>
-    <div class="sp-play-lane">
-      <div class="sp-play-marker"></div>
-      <div class="sp-play-track" id="sp-play-track">
-        <div class="sp-play-tile">
-          <div class="sp-tile-strum"></div>
-          <div class="sp-tile-name"></div>
-          <svg class="sp-tile-fret" viewBox="0 0 140 200"></svg>
-          <div class="sp-tile-lyric"></div>
-        </div>
-        <div class="sp-play-tile">
-          <div class="sp-tile-strum"></div>
-          <div class="sp-tile-name"></div>
-          <svg class="sp-tile-fret" viewBox="0 0 140 200"></svg>
-          <div class="sp-tile-lyric"></div>
-        </div>
-        <div class="sp-play-tile">
-          <div class="sp-tile-strum"></div>
-          <div class="sp-tile-name"></div>
-          <svg class="sp-tile-fret" viewBox="0 0 140 200"></svg>
-          <div class="sp-tile-lyric"></div>
-        </div>
-        <div class="sp-play-tile">
-          <div class="sp-tile-strum"></div>
-          <div class="sp-tile-name"></div>
-          <svg class="sp-tile-fret" viewBox="0 0 140 200"></svg>
-          <div class="sp-tile-lyric"></div>
-        </div>
-      </div>
+    <div class="sp-play-lane" id="sp-play-lane">
+      <div class="sp-play-grid" id="sp-play-grid"></div>
     </div>
   </div>
 </div>
@@ -2793,10 +2769,12 @@ document.getElementById('sp-tag-strum-reset').onclick = ()=>{
   spRenderEditor();
 };
 
-/* ── 演奏画面: コードカードが横に並ぶ表示 ──
-   1ブロック＝配置済みコードタグ1つ。「流れる」タブと同じく常に4枚(SP_PLAY_N)のDOMタイルを
-   使い回し、進めるたびに中身(コード名・フレット図・ストローク・歌詞の断片)だけ差し替える。
-   自動再生(タイマーで一定間隔ごとに1ブロック進める)と手動送り(◀/▶ボタン)を両方常に使える。 */
+/* ── 演奏画面: 曲全体ぶんのコードカードが折り返しながら並ぶ表示 ──
+   1カード＝配置済みコードタグ1つ。カードは曲を開いた時に全部まとめて1回だけ組み立て、
+   「今どこか」はカードへの.currentクラスの付け替え＋scrollIntoViewでの追従だけで表現する
+   (U-FRET等のような、全体を見渡せる縦スクロール表示にするため。窓4枚だけの横スクロールは
+   見づらいとの指摘を受けて撤回した)。自動再生(タイマーで一定間隔ごとに1カード進める)と
+   手動送り(◀/▶ボタン、カード自体のタップ)を両方常に使える。 */
 let playingSong = null;
 let spScrollMode = 'manual'; // 'manual'=秒指定, 'bpm'=BPM+拍数指定
 let spSecPerBlock = 2.0;
@@ -2805,7 +2783,6 @@ let spPlaying = false;
 let spPlayTimer = null;
 let spSongQueueTags = [];
 let spSongQueueIndex = 0;
-const SP_PLAY_N = 4;
 
 function spBuildQueueForSong(song){
   return [...(song.tags||[])].sort((a,b)=> a.line-b.line || a.ch-b.ch);
@@ -2828,7 +2805,7 @@ function openSongPlayer(song){
   document.getElementById('sp-play-title').textContent = song.title + (song.artist ? '　'+song.artist : '');
   spSongQueueTags = spBuildQueueForSong(song);
   spSongQueueIndex = 0;
-  spSyncPlayQueue();
+  spRenderPlayGrid();
   document.getElementById('sp-play-overlay').classList.add('open');
 }
 function closeSongPlayer(){
@@ -2840,34 +2817,53 @@ function closeSongPlayer(){
   document.getElementById('sp-play-overlay').classList.remove('open');
   playingSong = null;
 }
-function spSyncPlayQueue(){
-  const track = document.getElementById('sp-play-track');
-  if(!track || !playingSong) return;
-  for(let k=0; k<SP_PLAY_N; k++){
-    const idx = spSongQueueIndex + k;
-    const tag = spSongQueueTags[idx];
-    const tile = track.children[k];
-    if(!tile) continue;
-    const nameEl = tile.querySelector('.sp-tile-name');
-    const strumEl = tile.querySelector('.sp-tile-strum');
-    const lyricEl = tile.querySelector('.sp-tile-lyric');
-    const fretEl = tile.querySelector('.sp-tile-fret');
-    if(!tag){
-      nameEl.textContent = spSongQueueTags.length===0 ? 'コード未配置' : (idx===spSongQueueTags.length ? '(おわり)' : '');
-      strumEl.textContent = ''; lyricEl.textContent = ''; fretEl.innerHTML = '';
-      continue;
-    }
-    nameEl.textContent = tag.chord;
+// 曲全体ぶんのカードを1回だけ組み立てる(進めるたびに作り直す必要はない、ハイライトの
+// 付け替えとスクロール追従だけで済む)。カード自体をタップしてもその位置へ直接ジャンプできる。
+function spRenderPlayGrid(){
+  const grid = document.getElementById('sp-play-grid');
+  if(!grid || !playingSong) return;
+  grid.innerHTML = '';
+  if(spSongQueueTags.length===0){
+    grid.innerHTML = '<div class="sp-hint" style="padding:16px;">まだコードが配置されていません</div>';
+    return;
+  }
+  spSongQueueTags.forEach((tag, idx)=>{
+    const card = document.createElement('div');
+    card.className = 'sp-play-card';
+    const strumEl = document.createElement('div');
+    strumEl.className = 'sp-tile-strum';
     strumEl.textContent = spResolveStrumAt(playingSong, spSongQueueTags, idx).join(' ');
-    lyricEl.textContent = spCurrentBlockLyric(playingSong, spSongQueueTags, idx);
+    const nameEl = document.createElement('div');
+    nameEl.className = 'sp-tile-name';
+    nameEl.textContent = tag.chord;
+    const fretEl = document.createElementNS('http://www.w3.org/2000/svg','svg');
+    fretEl.setAttribute('viewBox','0 0 140 200');
+    fretEl.setAttribute('class','sp-tile-fret');
     const chordObj = ALL_CHORDS.find(c=>c.name===tag.chord);
-    if(chordObj) drawFret(chordObj, fretEl); else fretEl.innerHTML = '';
+    if(chordObj) drawFret(chordObj, fretEl);
+    const lyricEl = document.createElement('div');
+    lyricEl.className = 'sp-tile-lyric';
+    lyricEl.textContent = spCurrentBlockLyric(playingSong, spSongQueueTags, idx);
+    card.appendChild(strumEl); card.appendChild(nameEl); card.appendChild(fretEl); card.appendChild(lyricEl);
+    card.onclick = ()=>{ spSongQueueIndex = idx; spUpdatePlayHighlight(); };
+    grid.appendChild(card);
+  });
+  spUpdatePlayHighlight();
+}
+function spUpdatePlayHighlight(){
+  const grid = document.getElementById('sp-play-grid');
+  if(!grid) return;
+  [...grid.children].forEach(el=> el.classList.remove('current'));
+  const cur = grid.children[spSongQueueIndex];
+  if(cur){
+    cur.classList.add('current');
+    cur.scrollIntoView({behavior:'smooth', block:'nearest', inline:'nearest'});
   }
 }
 function spAdvanceBlock(delta){
   if(!playingSong) return;
   spSongQueueIndex = Math.max(0, Math.min(spSongQueueTags.length, spSongQueueIndex+delta));
-  spSyncPlayQueue();
+  spUpdatePlayHighlight();
 }
 document.getElementById('sp-block-prev').onclick = ()=> spAdvanceBlock(-1);
 document.getElementById('sp-block-next').onclick = ()=> spAdvanceBlock(1);
