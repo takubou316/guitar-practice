@@ -2612,7 +2612,10 @@ function renderStrumPresets(){
     label.className = 'sp-strum-preset-label';
     label.textContent = pattern.join(' ');
     label.onclick = ()=>{
-      blockFormStrum = [...pattern];
+      // 置き換えではなく追記にしているのは、同じパターンをもう一度タップするだけで
+      // 「同じストロークを2回繰り返す」を自然に組み立てられるようにするため。
+      // ゼロから組み直したい時は「クリア」ボタンで空にしてから使う。
+      blockFormStrum.push(...pattern);
       updateBlockFormStrumDisplay();
     };
     const del = document.createElement('span');
