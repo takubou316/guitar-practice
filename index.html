@@ -381,7 +381,7 @@ footer.controls-bar { height: var(--ftr); flex-shrink: 0; display: flex; align-i
 .sp-block-row { display: flex; align-items: center; gap: 10px; background: var(--surface1,var(--surface)); border: 0.5px solid var(--border); border-radius: 10px; padding: 8px 10px; margin-bottom: 6px; cursor: pointer; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
 .sp-block-row-chord { font-size: 16px; font-weight: 700; color: var(--accent); min-width: 44px; }
 .sp-block-row-mid { flex: 1; min-width: 0; }
-.sp-block-row-strum { font-size: 11px; color: var(--accent); letter-spacing: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-block-row-strum { display: flex; gap: 1px; font-size: 11px; color: var(--accent); overflow: hidden; white-space: nowrap; }
 .sp-block-row-lyric { font-size: 13px; color: var(--text2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sp-block-row-edit { color: var(--text3); flex-shrink: 0; }
 .sp-block-linebreak-marker { font-size: 11px; color: var(--text3); text-align: center; margin: 8px 0; }
@@ -703,12 +703,13 @@ body.le-prev-on .le-preview-content { display:flex; flex-direction:column; align
     <div id="block-form-chord-selected" style="font-size:13px; margin:8px 0; color:var(--text2);">未選択</div>
 
     <div style="font-size:12px; color:var(--text3); margin:12px 0 6px;">ストローク（コード全体で1パターン、または下の歌詞の文字数ぴったりに揃えると1文字ずつ個別扱いになる）</div>
-    <div id="block-form-strum-display" style="font-size:18px; letter-spacing:4px; min-height:26px; margin-bottom:6px;">（未設定）</div>
+    <div id="block-form-strum-display" style="display:flex; flex-wrap:wrap; align-items:center; gap:1px; font-size:18px; min-height:26px; margin-bottom:6px;">（未設定）</div>
     <div class="sp-row">
       <button class="sp-btn" id="block-form-strum-down" style="flex:1;">↓</button>
       <button class="sp-btn" id="block-form-strum-up" style="flex:1;">↑</button>
       <button class="sp-btn" id="block-form-strum-mute" style="flex:1;">✕</button>
       <button class="sp-btn" id="block-form-strum-wave" style="flex:1;">〜</button>
+      <button class="sp-btn" id="block-form-strum-gap" style="flex:1;" title="区切り(空き)を入れる">␣</button>
     </div>
     <div class="sp-row">
       <button class="sp-btn" id="block-form-strum-undo" style="flex:1;">1つ戻す</button>
@@ -2536,7 +2537,8 @@ function spRenderBlockList(){
     midEl.className = 'sp-block-row-mid';
     const strumEl = document.createElement('div');
     strumEl.className = 'sp-block-row-strum';
-    strumEl.textContent = (b.strum && b.strum.length) ? b.strum.join(' ') : '（ストロークなし）';
+    if(b.strum && b.strum.length) spRenderStrumSpans(strumEl, b.strum);
+    else strumEl.textContent = '（ストロークなし）';
     const lyricEl = document.createElement('div');
     lyricEl.className = 'sp-block-row-lyric';
     lyricEl.textContent = b.lyric ? b.lyric : '（歌詞なし）';
@@ -2573,7 +2575,9 @@ function updateBlockFormChordDisplay(){
   });
 }
 function updateBlockFormStrumDisplay(){
-  document.getElementById('block-form-strum-display').textContent = blockFormStrum.length ? blockFormStrum.join(' ') : '（未設定）';
+  const el = document.getElementById('block-form-strum-display');
+  if(blockFormStrum.length){ spRenderStrumSpans(el, blockFormStrum); }
+  else { el.textContent = '（未設定）'; }
 }
 function openBlockForm(index){
   blockFormEditIndex = (index===undefined) ? null : index;
@@ -2610,11 +2614,13 @@ function renderStrumPresets(){
     chip.className = 'sp-strum-preset-chip';
     const label = document.createElement('span');
     label.className = 'sp-strum-preset-label';
-    label.textContent = pattern.join(' ');
+    spRenderStrumSpans(label, pattern);
     label.onclick = ()=>{
       // 置き換えではなく追記にしているのは、同じパターンをもう一度タップするだけで
       // 「同じストロークを2回繰り返す」を自然に組み立てられるようにするため。
+      // 2回目以降は間に区切り(STRUM_GAP)を自動で挟み、繰り返しの塊として見分けやすくする。
       // ゼロから組み直したい時は「クリア」ボタンで空にしてから使う。
+      if(blockFormStrum.length>0) blockFormStrum.push(STRUM_GAP);
       blockFormStrum.push(...pattern);
       updateBlockFormStrumDisplay();
     };
@@ -2647,6 +2653,22 @@ document.getElementById('sp-block-add-btn').onclick = ()=> openBlockForm(null);
 document.getElementById('block-form-cancel-btn').onclick = closeBlockForm;
 document.getElementById('block-form-modal').addEventListener('click', e=>{ if(e.target===document.getElementById('block-form-modal')) closeBlockForm(); });
 
+/* ストローク列の中に「区切り(見た目の空き)」を挟めるようにするための特別な印。実際に弾く
+   記号ではなく表示上の間隔だけを表す。プレーンな文字として.join(' ')すると読みにくいので、
+   表示箇所(spRenderStrumSpans)ではこの印だけ余白を広げたspanに差し替えて描く。 */
+const STRUM_GAP = ' gap';
+function spRenderStrumSpans(container, strum){
+  container.innerHTML = '';
+  (strum||[]).forEach(sym=>{
+    const el = document.createElement('span');
+    if(sym===STRUM_GAP){
+      el.style.cssText = 'display:inline-block; width:14px;';
+    } else {
+      el.textContent = sym;
+    }
+    container.appendChild(el);
+  });
+}
 function blockFormAddStroke(sym){
   blockFormStrum.push(sym);
   updateBlockFormStrumDisplay();
@@ -2655,6 +2677,7 @@ document.getElementById('block-form-strum-down').onclick = ()=> blockFormAddStro
 document.getElementById('block-form-strum-up').onclick = ()=> blockFormAddStroke('↑');
 document.getElementById('block-form-strum-mute').onclick = ()=> blockFormAddStroke('✕');
 document.getElementById('block-form-strum-wave').onclick = ()=> blockFormAddStroke('〜');
+document.getElementById('block-form-strum-gap').onclick = ()=> blockFormAddStroke(STRUM_GAP);
 document.getElementById('block-form-strum-undo').onclick = ()=>{
   blockFormStrum = blockFormStrum.slice(0,-1);
   updateBlockFormStrumDisplay();
@@ -2742,7 +2765,7 @@ function spBuildStrumLyricRows(block){
       lyricRow.appendChild(l);
     });
   } else {
-    strumRow.textContent = strum.join(' ');
+    spRenderStrumSpans(strumRow, strum);
     lyricRow.textContent = chars.length ? block.lyric : ' ';
   }
   return [strumRow, lyricRow];
