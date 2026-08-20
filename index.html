@@ -2784,14 +2784,18 @@ function spBuildStrumLyricRows(block){
   // strumの末尾側(lyricStart以降)がちょうど歌詞の文字数と一致する時だけ1文字ずつ個別扱いにする。
   // lyricStartより手前の記号は「歌詞なしでその記号だけ弾く」区間として、対応する歌詞セルは空で描く
   // (前奏部分だけ先に弾いてから歌い出す、といったズレを表現するため)。
-  const perChar = chars.length>0 && (strum.length - lyricStart)===chars.length;
+  // 歌詞はlyricStartを起点にした「連続した区間」としてstrumの中のどこにあってもよい。
+  // 手前(lyricStartより前)だけでなく、後ろ(歌詞が終わった後にまだ記号が続く)にも空きを
+  // 作れるよう、区間がstrumの範囲内に収まってさえいれば1文字ずつ個別扱いにする。
+  const lyricEnd = lyricStart + chars.length;
+  const perChar = chars.length>0 && lyricStart>=0 && lyricEnd<=strum.length;
   if(perChar){
     strumRow.classList.add('sp-multichar'); lyricRow.classList.add('sp-multichar');
     strum.forEach((sym,i)=>{
       const s = document.createElement('span'); s.className='sp-char-cell'; s.textContent = sym;
       strumRow.appendChild(s);
       const l = document.createElement('span'); l.className='sp-char-cell';
-      if(i>=lyricStart) l.textContent = chars[i-lyricStart];
+      if(i>=lyricStart && i<lyricEnd) l.textContent = chars[i-lyricStart];
       lyricRow.appendChild(l);
     });
   } else {
