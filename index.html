@@ -389,6 +389,8 @@ footer.controls-bar { height: var(--ftr); flex-shrink: 0; display: flex; align-i
 .sp-strum-preset-chip { display: flex; align-items: center; gap: 4px; background: var(--surface2); border: 0.5px solid var(--border); border-radius: 20px; padding: 5px 6px 5px 10px; }
 .sp-strum-preset-label { font-size: 13px; color: var(--accent); letter-spacing: 1px; cursor: pointer; touch-action: manipulation; }
 .sp-strum-preset-delete { font-size: 12px; color: var(--text3); cursor: pointer; padding: 2px 4px; touch-action: manipulation; }
+.sp-strum-symbol-editable { cursor: pointer; touch-action: manipulation; padding: 0 2px; border-radius: 4px; }
+.sp-lyric-start-marker { background: var(--bg-accent,var(--accent)); color: #fff; }
 .profile-modal.open { display: flex; }
 .profile-panel { background: var(--surface); border: 0.5px solid var(--border); border-radius: 20px 20px 0 0; padding: 16px; padding-bottom: calc(14px + env(safe-area-inset-bottom)); width: 100%; max-width: 520px; max-height: 75dvh; overflow-y: auto; animation: slide-up 0.22s ease; }
 .profile-panel h3 { font-size: 15px; font-weight: 700; margin-bottom: 12px; }
@@ -703,7 +705,8 @@ body.le-prev-on .le-preview-content { display:flex; flex-direction:column; align
     <div id="block-form-chord-selected" style="font-size:13px; margin:8px 0; color:var(--text2);">未選択</div>
 
     <div style="font-size:12px; color:var(--text3); margin:12px 0 6px;">ストローク（コード全体で1パターン、または下の歌詞の文字数ぴったりに揃えると1文字ずつ個別扱いになる）</div>
-    <div id="block-form-strum-display" style="display:flex; flex-wrap:wrap; align-items:center; gap:1px; font-size:18px; min-height:26px; margin-bottom:6px;">（未設定）</div>
+    <div id="block-form-strum-display" style="display:flex; flex-wrap:wrap; align-items:center; gap:1px; font-size:18px; min-height:26px; margin-bottom:2px;">（未設定）</div>
+    <div class="sp-hint" style="margin:0 0 6px;">1文字ずつ個別扱いになっている時、記号をタップすると<b>「歌詞はここから」</b>を指定できます（前奏部分だけ先に弾いてから歌い出す時などに）。</div>
     <div class="sp-row">
       <button class="sp-btn" id="block-form-strum-down" style="flex:1;">↓</button>
       <button class="sp-btn" id="block-form-strum-up" style="flex:1;">↑</button>
@@ -2418,7 +2421,8 @@ function importSongFromJson(){
       chord: b.chord,
       strum: Array.isArray(b.strum) ? b.strum.map(String) : [],
       lyric: b.lyric==null ? '' : String(b.lyric),
-      lineBreakBefore: !!b.lineBreakBefore
+      lineBreakBefore: !!b.lineBreakBefore,
+      lyricStart: Number.isInteger(b.lyricStart) ? b.lyricStart : 0
     }));
 
   const song = {
@@ -2492,6 +2496,7 @@ let editingSong = null;
 let blockFormEditIndex = null; // null=新規追加、数値=既存ブロックのインデックスを編集中
 let blockFormChord = null;
 let blockFormStrum = [];
+let blockFormLyricStart = 0; // strum配列の何番目から歌詞と1:1対応させるか(前奏だけ弾いてから歌い出す等)
 
 function openSongEditor(song){
   if(!song) return;
@@ -2574,16 +2579,27 @@ function updateBlockFormChordDisplay(){
     b.classList.toggle('selected', b.dataset.chordName===blockFormChord);
   });
 }
+/* strum配列が縮んでblockFormLyricStartが指してた位置が無くなった場合、範囲内に収め直す。
+   記号をタップした時は、そこを「歌詞はここから」の位置として保存する。 */
 function updateBlockFormStrumDisplay(){
   const el = document.getElementById('block-form-strum-display');
-  if(blockFormStrum.length){ spRenderStrumSpans(el, blockFormStrum); }
-  else { el.textContent = '（未設定）'; }
+  if(blockFormLyricStart >= blockFormStrum.length) blockFormLyricStart = Math.max(0, blockFormStrum.length-1);
+  if(blockFormStrum.length){
+    spRenderStrumSpans(el, blockFormStrum, {
+      editable: true,
+      lyricStart: blockFormLyricStart,
+      onSymbolClick: (i)=>{ blockFormLyricStart = i; updateBlockFormStrumDisplay(); }
+    });
+  } else {
+    el.textContent = '（未設定）';
+  }
 }
 function openBlockForm(index){
   blockFormEditIndex = (index===undefined) ? null : index;
   const b = (blockFormEditIndex!==null) ? editingSong.blocks[blockFormEditIndex] : null;
   blockFormChord = b ? b.chord : null;
   blockFormStrum = b ? [...(b.strum||[])] : [];
+  blockFormLyricStart = b ? (b.lyricStart||0) : 0;
   document.getElementById('block-form-title').textContent = b ? 'ブロックを編集' : 'ブロックを追加';
   document.getElementById('block-form-lyric').value = b ? (b.lyric||'') : '';
   document.getElementById('block-form-linebreak').checked = b ? !!b.lineBreakBefore : false;
@@ -2657,14 +2673,22 @@ document.getElementById('block-form-modal').addEventListener('click', e=>{ if(e.
    記号ではなく表示上の間隔だけを表す。プレーンな文字として.join(' ')すると読みにくいので、
    表示箇所(spRenderStrumSpans)ではこの印だけ余白を広げたspanに差し替えて描く。 */
 const STRUM_GAP = ' gap';
-function spRenderStrumSpans(container, strum){
+// options.editable=trueの時、記号(区切りを除く)をタップ可能にし、options.lyricStartと同じ
+// 添字の記号に「歌詞はここから」の印を付ける。タップするとoptions.onSymbolClick(index)を呼ぶ。
+function spRenderStrumSpans(container, strum, options){
+  options = options || {};
   container.innerHTML = '';
-  (strum||[]).forEach(sym=>{
+  (strum||[]).forEach((sym, i)=>{
     const el = document.createElement('span');
     if(sym===STRUM_GAP){
       el.style.cssText = 'display:inline-block; width:14px;';
     } else {
       el.textContent = sym;
+      if(options.editable){
+        el.classList.add('sp-strum-symbol-editable');
+        if(i===options.lyricStart) el.classList.add('sp-lyric-start-marker');
+        el.onclick = ()=> options.onSymbolClick && options.onSymbolClick(i);
+      }
     }
     container.appendChild(el);
   });
@@ -2692,7 +2716,8 @@ document.getElementById('block-form-confirm-btn').onclick = ()=>{
     chord: blockFormChord,
     strum: [...blockFormStrum],
     lyric: document.getElementById('block-form-lyric').value,
-    lineBreakBefore: document.getElementById('block-form-linebreak').checked
+    lineBreakBefore: document.getElementById('block-form-linebreak').checked,
+    lyricStart: blockFormLyricStart
   };
   if(!editingSong.blocks) editingSong.blocks = [];
   if(blockFormEditIndex!==null) editingSong.blocks[blockFormEditIndex] = block;
@@ -2755,13 +2780,18 @@ function spBuildStrumLyricRows(block){
   lyricRow.className = 'sp-block-lyric-row';
   const chars = [...(block.lyric||'')];
   const strum = block.strum || [];
-  const perChar = chars.length>0 && strum.length===chars.length;
+  const lyricStart = Math.min(Math.max(0, block.lyricStart||0), strum.length);
+  // strumの末尾側(lyricStart以降)がちょうど歌詞の文字数と一致する時だけ1文字ずつ個別扱いにする。
+  // lyricStartより手前の記号は「歌詞なしでその記号だけ弾く」区間として、対応する歌詞セルは空で描く
+  // (前奏部分だけ先に弾いてから歌い出す、といったズレを表現するため)。
+  const perChar = chars.length>0 && (strum.length - lyricStart)===chars.length;
   if(perChar){
     strumRow.classList.add('sp-multichar'); lyricRow.classList.add('sp-multichar');
-    chars.forEach((ch,i)=>{
-      const s = document.createElement('span'); s.className='sp-char-cell'; s.textContent = strum[i];
+    strum.forEach((sym,i)=>{
+      const s = document.createElement('span'); s.className='sp-char-cell'; s.textContent = sym;
       strumRow.appendChild(s);
-      const l = document.createElement('span'); l.className='sp-char-cell'; l.textContent = ch;
+      const l = document.createElement('span'); l.className='sp-char-cell';
+      if(i>=lyricStart) l.textContent = chars[i-lyricStart];
       lyricRow.appendChild(l);
     });
   } else {
