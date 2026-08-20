@@ -331,6 +331,7 @@ footer.controls-bar { height: var(--ftr); flex-shrink: 0; display: flex; align-i
 .sp-status.active { color: var(--accent); font-weight: 700; }
 .sp-palette { display: flex; flex-wrap: wrap; gap: 6px; max-height: 26vh; overflow-y: auto; }
 .sp-palette button { padding: 6px 9px; border-radius: 7px; border: 0.5px solid var(--border); background: var(--surface2); color: var(--text); font-size: 13px; font-weight: 700; touch-action: manipulation; }
+.sp-palette button.selected { background: var(--accent); border-color: var(--accent); color: #fff; }
 .sp-palette button:disabled { opacity: .35; }
 .sp-edit-controls { display: none; flex-wrap: wrap; gap: 6px; }
 .sp-edit-controls button { flex: 1; min-width: 70px; }
@@ -2555,6 +2556,7 @@ const SP_CHORD_NAMES = ALL_CHORDS.map(c=>c.name);
   SP_CHORD_NAMES.forEach(name=>{
     const b = document.createElement('button');
     b.textContent = name;
+    b.dataset.chordName = name;
     b.onclick = ()=>{
       blockFormChord = name;
       updateBlockFormChordDisplay();
@@ -2562,8 +2564,13 @@ const SP_CHORD_NAMES = ALL_CHORDS.map(c=>c.name);
     paletteEl.appendChild(b);
   });
 })();
+// blockFormChordが直接セットされる経路(既存ブロックの編集で開いた時等)でもボタンの見た目が
+// 追従するよう、テキスト表示の更新とパレットのハイライト付け替えをここでまとめて行う。
 function updateBlockFormChordDisplay(){
   document.getElementById('block-form-chord-selected').textContent = blockFormChord ? `選択中: ${blockFormChord}` : '未選択';
+  document.querySelectorAll('#block-form-palette button').forEach(b=>{
+    b.classList.toggle('selected', b.dataset.chordName===blockFormChord);
+  });
 }
 function updateBlockFormStrumDisplay(){
   document.getElementById('block-form-strum-display').textContent = blockFormStrum.length ? blockFormStrum.join(' ') : '（未設定）';
