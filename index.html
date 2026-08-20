@@ -353,14 +353,18 @@ footer.controls-bar { height: var(--ftr); flex-shrink: 0; display: flex; align-i
    カード自体のデータ(進行順・区間ごとの歌詞・引き継ぎ式ストローク)は流用し、表示方法だけ変える。 */
 .sp-play-lane { flex: 1; overflow-y: auto; border-radius: var(--radius); background: linear-gradient(180deg,var(--surface),var(--surface2)); border: 0.5px solid var(--border); margin-top: 10px; padding: 8px; }
 .sp-play-grid { display: flex; flex-wrap: wrap; gap: 6px; }
-.sp-play-card { width: 80px; flex-shrink: 0; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 3px; border-radius: 8px; opacity: 0.6; cursor: pointer; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+/* コードカード: フレット図(横向き固定)→ストローク→歌詞の順に縦に並べる。ストロークと歌詞の
+   文字数がぴったり合っている場合は.sp-char-cellで1文字ずつ真上に揃えて表示し(1文字ごとの個別
+   ストローク)、合っていない場合はコード全体の1パターンとしてそのまま流して表示する。 */
+.sp-play-card { flex-shrink: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 8px 10px; border-radius: 10px; opacity: 0.5; cursor: pointer; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
 .sp-play-card.current { background: var(--surface2); border: 2px solid var(--accent); opacity: 1; }
-.sp-tile-strum { font-size: 10px; letter-spacing: 1px; color: var(--accent); min-height: 12px; }
-.sp-tile-name { font-size: 15px; font-weight: 800; line-height: 1; color: var(--text); }
-.sp-tile-fret { width: 100%; height: auto; }
-.sp-tile-lyric { font-size: 10px; color: var(--text2); text-align: center; word-break: break-all; min-height: 12px; }
+.sp-card-chord-name { font-size: 14px; font-weight: 700; color: var(--text); }
+.sp-card-fret { width: 100px; height: auto; margin-bottom: 4px; }
+.sp-block-strum-row { display: flex; gap: 1px; font-size: 12px; color: var(--accent); font-weight: 700; }
+.sp-block-lyric-row { display: flex; gap: 1px; font-size: 14px; }
+.sp-block-strum-row:not(.sp-multichar), .sp-block-lyric-row:not(.sp-multichar) { letter-spacing: 1px; }
+.sp-char-cell { width: 18px; text-align: center; flex-shrink: 0; }
 /* 配置済みタグに独自のストローク変更があることを示す印（外枠を目立たせるだけのシンプルな方式） */
-.sp-tag-slot.filled.has-strum { box-shadow: 0 0 0 2px var(--accent2,#ffd08a) inset; }
 #sp-tag-strum-controls { display: none; margin-top: 8px; padding-top: 8px; border-top: 0.5px solid var(--border); }
 #sp-tag-strum-controls .sp-row { margin-top: 6px; }
 
@@ -372,6 +376,14 @@ footer.controls-bar { height: var(--ftr); flex-shrink: 0; display: flex; align-i
    ✎ボタンからも開くため、.profile-modalの既定z-index(60)のままだとsp-overlayの下に隠れて見えなく
    なる(タップしても反応が無いように見えるバグの原因だった)。sp-overlayより確実に上に来るよう上書きする。 */
 #newsong-modal { z-index: 80; }
+#block-form-modal { z-index: 80; }
+.sp-block-row { display: flex; align-items: center; gap: 10px; background: var(--surface1,var(--surface)); border: 0.5px solid var(--border); border-radius: 10px; padding: 8px 10px; margin-bottom: 6px; cursor: pointer; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+.sp-block-row-chord { font-size: 16px; font-weight: 700; color: var(--accent); min-width: 44px; }
+.sp-block-row-mid { flex: 1; min-width: 0; }
+.sp-block-row-strum { font-size: 11px; color: var(--accent); letter-spacing: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-block-row-lyric { font-size: 13px; color: var(--text2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-block-row-edit { color: var(--text3); flex-shrink: 0; }
+.sp-block-linebreak-marker { font-size: 11px; color: var(--text3); text-align: center; margin: 8px 0; }
 .profile-modal.open { display: flex; }
 .profile-panel { background: var(--surface); border: 0.5px solid var(--border); border-radius: 20px 20px 0 0; padding: 16px; padding-bottom: calc(14px + env(safe-area-inset-bottom)); width: 100%; max-width: 520px; max-height: 75dvh; overflow-y: auto; animation: slide-up 0.22s ease; }
 .profile-panel h3 { font-size: 15px; font-weight: 700; margin-bottom: 12px; }
@@ -656,7 +668,7 @@ body.le-prev-on .le-preview-content { display:flex; flex-direction:column; align
   </div>
 </div>
 
-<!-- 歌詞＋コード編集画面 -->
+<!-- コード＋ストローク＋歌詞のブロックを先に組み立てていく編集画面 -->
 <div class="sp-overlay" id="sp-edit-overlay">
   <div class="sp-hdr">
     <div class="sp-hdr-title" id="sp-edit-title"></div>
@@ -666,54 +678,49 @@ body.le-prev-on .le-preview-content { display:flex; flex-direction:column; align
     </div>
   </div>
   <div class="sp-body">
-    <textarea class="sp-textarea" id="sp-lyrics-input" placeholder="ここに歌詞を貼り付け／入力"></textarea>
     <div class="sp-row">
-      <button class="sp-btn" id="sp-clear-btn">配置クリア</button>
-      <button class="sp-btn" id="sp-copy-btn">📋 この曲のデータをコピー</button>
-      <button class="sp-btn primary" onclick="openSongPlayer(editingSong)">▶ この内容で再生確認</button>
+      <button class="sp-btn" id="sp-copy-btn" style="flex:1;">📋 この曲のデータをコピー</button>
+      <button class="sp-btn primary" style="flex:1;" onclick="openSongPlayer(editingSong)">▶ この内容で再生確認</button>
     </div>
-    <div class="sp-hint">歌詞を貼り付けると自動反映されます。<b>①コードを乗せたい文字をタップ→②下のコードパレットをタップ</b>で配置。既に置いてあるコードタグをタップすると編集できます。</div>
-    <div class="sp-notice" id="sp-lyrics-notice"></div>
+    <div class="sp-hint">「＋ブロックを追加」で、<b>コード→ストローク→そのブロックに乗る歌詞</b>の順に1つずつ組み立てます。ブロックをタップすると編集・削除できます。「ここで行を変える」を付けたブロックから、演奏画面で新しい帯になります。</div>
 
-    <div class="sp-ctrl-group" style="margin-top:0;">
-      <div style="font-size:12px; color:var(--text3); margin-bottom:6px;">ストロークパターン（曲全体で共通）</div>
-      <div id="sp-strum-display" style="font-size:20px; letter-spacing:6px; min-height:28px; margin-bottom:8px;">（未設定）</div>
-      <div class="sp-row">
-        <button class="sp-btn" id="sp-strum-down" style="flex:1; font-size:18px;">↓</button>
-        <button class="sp-btn" id="sp-strum-up" style="flex:1; font-size:18px;">↑</button>
-        <button class="sp-btn" id="sp-strum-mute" style="flex:1; font-size:18px;">✕</button>
-        <button class="sp-btn" id="sp-strum-wave" style="flex:1; font-size:18px;">〜</button>
-      </div>
-      <div class="sp-row">
-        <button class="sp-btn" id="sp-strum-undo" style="flex:1;">1つ戻す</button>
-        <button class="sp-btn" id="sp-strum-clear" style="flex:1;">全部クリア</button>
-      </div>
-    </div>
-
-    <div id="sp-lyric-preview"></div>
-    <div class="sp-hint" id="sp-progression-preview">まだコードが配置されていません</div>
+    <div id="sp-block-list"></div>
+    <button class="sp-btn primary" id="sp-block-add-btn" style="width:100%; margin-top:10px; padding:12px; font-size:15px;">＋ ブロックを追加</button>
   </div>
-  <div class="sp-dock">
-    <div class="sp-status" id="sp-status">歌詞の文字をタップしてください</div>
-    <div class="sp-palette" id="sp-palette"></div>
-    <div class="sp-edit-controls" id="sp-edit-controls">
-      <button class="sp-btn" id="sp-move-left">◀ 左へ</button>
-      <button class="sp-btn" id="sp-move-right">右へ ▶</button>
-      <button class="sp-btn" id="sp-tag-delete" style="background:#7a2d2d; border-color:#7a2d2d; color:#fff;">✕ 削除</button>
-      <button class="sp-btn" id="sp-tag-deselect">選択解除</button>
-      <div id="sp-tag-strum-controls">
-        <div style="font-size:11px; color:var(--text3);">このコードからのストローク: <span id="sp-tag-strum-current"></span></div>
-        <div class="sp-row">
-          <button class="sp-btn" id="sp-tag-strum-down" style="flex:1;">↓</button>
-          <button class="sp-btn" id="sp-tag-strum-up" style="flex:1;">↑</button>
-          <button class="sp-btn" id="sp-tag-strum-mute" style="flex:1;">✕</button>
-          <button class="sp-btn" id="sp-tag-strum-wave" style="flex:1;">〜</button>
-        </div>
-        <div class="sp-row">
-          <button class="sp-btn" id="sp-tag-strum-undo" style="flex:1;">1つ戻す</button>
-          <button class="sp-btn" id="sp-tag-strum-reset" style="flex:1;">継承に戻す</button>
-        </div>
-      </div>
+</div>
+
+<!-- ブロック追加/編集フォーム（sp-edit-overlayの中から開くのでz-indexをそれより上に上書きしてある） -->
+<div class="profile-modal" id="block-form-modal">
+  <div class="profile-panel" id="block-form-panel">
+    <h3 id="block-form-title">ブロックを追加</h3>
+    <div style="font-size:12px; color:var(--text3); margin-bottom:6px;">コード</div>
+    <div class="sp-palette" id="block-form-palette" style="max-height:22vh; overflow-y:auto;"></div>
+    <div id="block-form-chord-selected" style="font-size:13px; margin:8px 0; color:var(--text2);">未選択</div>
+
+    <div style="font-size:12px; color:var(--text3); margin:12px 0 6px;">ストローク（コード全体で1パターン、または下の歌詞の文字数ぴったりに揃えると1文字ずつ個別扱いになる）</div>
+    <div id="block-form-strum-display" style="font-size:18px; letter-spacing:4px; min-height:26px; margin-bottom:6px;">（未設定）</div>
+    <div class="sp-row">
+      <button class="sp-btn" id="block-form-strum-down" style="flex:1;">↓</button>
+      <button class="sp-btn" id="block-form-strum-up" style="flex:1;">↑</button>
+      <button class="sp-btn" id="block-form-strum-mute" style="flex:1;">✕</button>
+      <button class="sp-btn" id="block-form-strum-wave" style="flex:1;">〜</button>
+    </div>
+    <div class="sp-row">
+      <button class="sp-btn" id="block-form-strum-undo" style="flex:1;">1つ戻す</button>
+      <button class="sp-btn" id="block-form-strum-clear" style="flex:1;">クリア</button>
+    </div>
+
+    <div style="font-size:12px; color:var(--text3); margin:12px 0 6px;">このブロックの歌詞（前奏など無い場合は空でよい）</div>
+    <input class="profile-input" id="block-form-lyric" placeholder="例: ラララ" style="width:100%;">
+
+    <label style="display:flex; align-items:center; gap:8px; margin:12px 0; font-size:13px;">
+      <input type="checkbox" id="block-form-linebreak"> ここで行を変える（新しい帯にする）
+    </label>
+
+    <button class="sp-btn" id="block-form-delete-btn" style="width:100%; background:#7a2d2d; border-color:#7a2d2d; color:#fff; display:none; margin-bottom:8px;">🗑 このブロックを削除</button>
+    <div class="sp-row">
+      <button class="sp-btn" id="block-form-cancel-btn" style="flex:1;">キャンセル</button>
+      <button class="profile-add-btn" id="block-form-confirm-btn" style="flex:1; margin:0;">追加する</button>
     </div>
   </div>
 </div>
@@ -2299,12 +2306,11 @@ function loadUserSongs(){
 }
 function saveUserSongs(){ localStorage.setItem(USER_SONGS_KEY, JSON.stringify(USER_SONGS)); }
 function findUserSong(id){ return USER_SONGS.find(s=>s.id===id); }
-// 歌詞へのコード配置(タグ)の順番から、既存のprogression形式({section,seq})を自動導出する。
+// 組み立てたブロックの並び順から、既存のprogression形式({section,seq})を自動導出する。
 // セクション分け(Aメロ/サビ等)のUIはまだ無いため、今は「全体」1セクションにまとめる簡易版。
-function deriveProgression(tags){
-  const sorted = [...(tags||[])].sort((a,b)=> a.line-b.line || a.ch-b.ch);
-  if(sorted.length===0) return [];
-  return [{ section:'全体', seq: sorted.map(t=>t.chord) }];
+function deriveProgressionFromBlocks(blocks){
+  if(!blocks || blocks.length===0) return [];
+  return [{ section:'全体', seq: blocks.map(b=>b.chord) }];
 }
 function mergedSongs(){
   return [...SONGS.map(s=>({...s, isUser:false})), ...USER_SONGS.map(s=>({...s, isUser:true}))];
@@ -2355,7 +2361,7 @@ function confirmNewSongModal(){
     return;
   }
 
-  const song = { id: 'us-'+Date.now()+'-'+Math.floor(Math.random()*10000), title, artist, lyrics:[], tags:[], progression:[], strumPattern:[] };
+  const song = { id: 'us-'+Date.now()+'-'+Math.floor(Math.random()*10000), title, artist, blocks:[], progression:[] };
   USER_SONGS.push(song);
   saveUserSongs();
   closeNewSongModal();
@@ -2395,21 +2401,20 @@ function importSongFromJson(){
   const title = (data.title==null ? '' : String(data.title)).trim();
   if(!title){ alert('曲名(title)が見つかりませんでした。正しいデータか確認してください。'); return; }
   const artist = data.artist==null ? '' : String(data.artist);
-  const lyrics = Array.isArray(data.lyrics) ? data.lyrics.map(String) : [];
-  const rawTags = Array.isArray(data.tags) ? data.tags : [];
-  const tags = rawTags
-    .filter(t => t && typeof t.line==='number' && typeof t.ch==='number' && typeof t.chord==='string')
-    .map(t => {
-      const out = {line:t.line, ch:t.ch, chord:t.chord};
-      if(Array.isArray(t.strum) && t.strum.length) out.strum = t.strum.map(String);
-      return out;
-    });
-  const strumPattern = Array.isArray(data.strumPattern) ? data.strumPattern.map(String) : [];
+  const rawBlocks = Array.isArray(data.blocks) ? data.blocks : [];
+  const blocks = rawBlocks
+    .filter(b => b && typeof b.chord==='string')
+    .map(b => ({
+      chord: b.chord,
+      strum: Array.isArray(b.strum) ? b.strum.map(String) : [],
+      lyric: b.lyric==null ? '' : String(b.lyric),
+      lineBreakBefore: !!b.lineBreakBefore
+    }));
 
   const song = {
     id: 'us-'+Date.now()+'-'+Math.floor(Math.random()*10000),
-    title, artist, lyrics, tags, strumPattern,
-    progression: deriveProgression(tags)
+    title, artist, blocks,
+    progression: deriveProgressionFromBlocks(blocks)
   };
   USER_SONGS.push(song);
   saveUserSongs();
@@ -2466,100 +2471,31 @@ function buildSongsView(){
    song-player-test.html（実験用プロトタイプ）で実機検証した実装をそのまま移植したもの。
    経緯・各対策の理由は同ファイルのコメント、およびHANDOFF.mdを参照。 */
 
-/* ── 編集画面 ── */
+/* ── 編集画面: コード＋ストローク＋歌詞断片の「ブロック」を先に組み立てていく方式 ──
+   以前は「歌詞を全部先に書いて、文字位置にコードをタグ付けする」方式だったが、実際の曲は
+   「コード進行とストロークがまずあって、そこに歌詞が乗る」ものなので、それに合わせて逆転させた。
+   1ブロック = {chord, strum, lyric, lineBreakBefore}。strumは、そのブロックのlyricの文字数と
+   ぴったり同じ長さなら「1文字ずつ個別のストローク」として、それ以外は「コード全体で1パターン」
+   として扱う（演奏画面側の描画で判定する）。曲の見た目上の行(帯)は、lineBreakBeforeが立っている
+   ブロックの手前で区切る。 */
 let editingSong = null;
-let spSelected = null;      // {line, ch} | null … 未配置の文字位置を選択中
-let spSelectedTag = null;   // タグへの参照 | null … 配置済みタグを選択中
-let spCommitTimer = null;
-
-function spLineChars(lineText){ return [...(lineText||'')]; }
-function spLineCharAt(lineText, ch){ return spLineChars(lineText)[ch] ?? '(行末)'; }
+let blockFormEditIndex = null; // null=新規追加、数値=既存ブロックのインデックスを編集中
+let blockFormChord = null;
+let blockFormStrum = [];
 
 function openSongEditor(song){
   if(!song) return;
   editingSong = song;
+  if(!editingSong.blocks) editingSong.blocks = [];
   document.getElementById('sp-edit-title').textContent = song.title + (song.artist ? '　'+song.artist : '');
-  document.getElementById('sp-lyrics-input').value = (song.lyrics||[]).join('\n');
-  document.getElementById('sp-lyrics-notice').style.display = 'none';
-  spSelected = null; spSelectedTag = null;
-  spRenderEditor();
-  spRenderStrumDisplay();
+  spRenderBlockList();
   document.getElementById('sp-edit-overlay').classList.add('open');
-}
-
-/* ── ストロークパターン（曲全体で共通の1パターンのみ。行/セクションごとの個別設定は今後の課題） ──
-   矢印記号を打つのはキーボードだと大変なので、↓/↑/✕(ミュート)ボタンをタップした順に追記していく方式。
-   並べ替えはできず、1つ戻す/全部クリアのみ（長押しドラッグでの並べ替えは前例の通りiOS実機で
-   反応しないことがあるため採用しない）。 */
-function spAddStroke(sym){
-  if(!editingSong) return;
-  if(!editingSong.strumPattern) editingSong.strumPattern = [];
-  editingSong.strumPattern.push(sym);
-  saveUserSongs();
-  spRenderStrumDisplay();
-}
-document.getElementById('sp-strum-down').onclick = ()=> spAddStroke('↓');
-document.getElementById('sp-strum-up').onclick = ()=> spAddStroke('↑');
-document.getElementById('sp-strum-mute').onclick = ()=> spAddStroke('✕');
-document.getElementById('sp-strum-wave').onclick = ()=> spAddStroke('〜');
-document.getElementById('sp-strum-undo').onclick = ()=>{
-  if(!editingSong) return;
-  editingSong.strumPattern = (editingSong.strumPattern||[]).slice(0,-1);
-  saveUserSongs();
-  spRenderStrumDisplay();
-};
-document.getElementById('sp-strum-clear').onclick = ()=>{
-  if(!editingSong) return;
-  editingSong.strumPattern = [];
-  saveUserSongs();
-  spRenderStrumDisplay();
-};
-function spRenderStrumDisplay(){
-  const el = document.getElementById('sp-strum-display');
-  const pattern = (editingSong && editingSong.strumPattern) || [];
-  el.textContent = pattern.length ? pattern.join(' ') : '（未設定）';
 }
 function closeSongEditor(){
   document.getElementById('sp-edit-overlay').classList.remove('open');
   editingSong = null;
   buildSongsView();
 }
-
-/* 歌詞編集で内容が変わった行は、そこにあったタグの{line,ch}が指す文字が変わってしまい
-   位置がズレたまま残ってしまうため、変わった行のタグだけ安全側に倒して自動削除する。
-   LCS等の高度な差分照合は複雑さに見合わないため、行単位の完全一致比較のみで判定する。 */
-function spCommitLyrics(){
-  if(!editingSong) return;
-  if(spCommitTimer!==null){ clearTimeout(spCommitTimer); spCommitTimer=null; }
-  const raw = document.getElementById('sp-lyrics-input').value;
-  const newLines = raw.split('\n').filter(l=>l.length || true);
-  const oldLines = editingSong.lyrics || [];
-  let dropped = 0;
-  editingSong.tags = (editingSong.tags||[]).filter(t=>{
-    const unchanged = t.line < oldLines.length && t.line < newLines.length && oldLines[t.line] === newLines[t.line];
-    if(!unchanged) dropped++;
-    return unchanged;
-  });
-  editingSong.lyrics = newLines;
-  editingSong.tags = editingSong.tags.filter(t=>t.line < newLines.length && t.ch <= spLineChars(newLines[t.line]).length);
-  editingSong.progression = deriveProgression(editingSong.tags);
-  spSelected = null; spSelectedTag = null;
-  saveUserSongs();
-  spRenderEditor();
-  if(dropped>0) spShowLyricsNotice(dropped);
-}
-document.getElementById('sp-lyrics-input').addEventListener('input', ()=>{
-  clearTimeout(spCommitTimer);
-  spCommitTimer = setTimeout(spCommitLyrics, 300);
-});
-document.getElementById('sp-clear-btn').onclick = ()=>{
-  if(!editingSong) return;
-  editingSong.tags = [];
-  editingSong.progression = [];
-  spSelected = null; spSelectedTag = null;
-  saveUserSongs();
-  spRenderEditor();
-};
 document.getElementById('sp-copy-btn').onclick = ()=>{
   if(!editingSong) return;
   navigator.clipboard.writeText(JSON.stringify(editingSong, null, 2))
@@ -2567,206 +2503,124 @@ document.getElementById('sp-copy-btn').onclick = ()=>{
     .catch(()=> alert('コピーに失敗しました。'));
 };
 
-let spNoticeTimer = null;
-function spShowLyricsNotice(count){
-  const el = document.getElementById('sp-lyrics-notice');
-  el.textContent = `歌詞を編集したため、変更された行のコード配置を${count}件削除しました`;
-  el.style.display = 'block';
-  clearTimeout(spNoticeTimer);
-  spNoticeTimer = setTimeout(()=>{ el.style.display='none'; }, 4000);
-}
-
-function spSelectTag(tagData){
-  spSelectedTag = tagData;
-  spSelected = null;
-  spRenderEditor();
+function spRenderBlockList(){
+  const wrap = document.getElementById('sp-block-list');
+  wrap.innerHTML = '';
+  const blocks = editingSong.blocks || [];
+  if(blocks.length===0){
+    wrap.innerHTML = '<div class="sp-hint">まだブロックがありません。「＋ブロックを追加」から始めてください。</div>';
+    return;
+  }
+  blocks.forEach((b, i)=>{
+    if(i>0 && b.lineBreakBefore){
+      const brEl = document.createElement('div');
+      brEl.className = 'sp-block-linebreak-marker';
+      brEl.textContent = '── ここで行を変える ──';
+      wrap.appendChild(brEl);
+    }
+    const row = document.createElement('div');
+    row.className = 'sp-block-row';
+    const chordEl = document.createElement('div');
+    chordEl.className = 'sp-block-row-chord';
+    chordEl.textContent = b.chord;
+    const midEl = document.createElement('div');
+    midEl.className = 'sp-block-row-mid';
+    const strumEl = document.createElement('div');
+    strumEl.className = 'sp-block-row-strum';
+    strumEl.textContent = (b.strum && b.strum.length) ? b.strum.join(' ') : '（ストロークなし）';
+    const lyricEl = document.createElement('div');
+    lyricEl.className = 'sp-block-row-lyric';
+    lyricEl.textContent = b.lyric ? b.lyric : '（歌詞なし）';
+    midEl.appendChild(strumEl); midEl.appendChild(lyricEl);
+    const editEl = document.createElement('div');
+    editEl.className = 'sp-block-row-edit';
+    editEl.textContent = '✎';
+    row.appendChild(chordEl); row.appendChild(midEl); row.appendChild(editEl);
+    row.onclick = ()=> openBlockForm(i);
+    wrap.appendChild(row);
+  });
 }
 
 const SP_CHORD_NAMES = ALL_CHORDS.map(c=>c.name);
-(function spBuildPalette(){
-  const paletteEl = document.getElementById('sp-palette');
+(function spBuildBlockFormPalette(){
+  const paletteEl = document.getElementById('block-form-palette');
   SP_CHORD_NAMES.forEach(name=>{
     const b = document.createElement('button');
     b.textContent = name;
     b.onclick = ()=>{
-      if(!spSelected || !editingSong) return;
-      editingSong.tags = (editingSong.tags||[]).filter(t=>!(t.line===spSelected.line && t.ch===spSelected.ch));
-      editingSong.tags.push({line:spSelected.line, ch:spSelected.ch, chord:name});
-      editingSong.progression = deriveProgression(editingSong.tags);
-      spSelected = null;
-      saveUserSongs();
-      spRenderEditor();
+      blockFormChord = name;
+      updateBlockFormChordDisplay();
     };
     paletteEl.appendChild(b);
   });
 })();
+function updateBlockFormChordDisplay(){
+  document.getElementById('block-form-chord-selected').textContent = blockFormChord ? `選択中: ${blockFormChord}` : '未選択';
+}
+function updateBlockFormStrumDisplay(){
+  document.getElementById('block-form-strum-display').textContent = blockFormStrum.length ? blockFormStrum.join(' ') : '（未設定）';
+}
+function openBlockForm(index){
+  blockFormEditIndex = (index===undefined) ? null : index;
+  const b = (blockFormEditIndex!==null) ? editingSong.blocks[blockFormEditIndex] : null;
+  blockFormChord = b ? b.chord : null;
+  blockFormStrum = b ? [...(b.strum||[])] : [];
+  document.getElementById('block-form-title').textContent = b ? 'ブロックを編集' : 'ブロックを追加';
+  document.getElementById('block-form-lyric').value = b ? (b.lyric||'') : '';
+  document.getElementById('block-form-linebreak').checked = b ? !!b.lineBreakBefore : false;
+  document.getElementById('block-form-delete-btn').style.display = b ? 'block' : 'none';
+  document.getElementById('block-form-confirm-btn').textContent = b ? '保存する' : '追加する';
+  updateBlockFormChordDisplay();
+  updateBlockFormStrumDisplay();
+  document.getElementById('block-form-modal').classList.add('open');
+}
+function closeBlockForm(){
+  document.getElementById('block-form-modal').classList.remove('open');
+}
+document.getElementById('sp-block-add-btn').onclick = ()=> openBlockForm(null);
+document.getElementById('block-form-cancel-btn').onclick = closeBlockForm;
+document.getElementById('block-form-modal').addEventListener('click', e=>{ if(e.target===document.getElementById('block-form-modal')) closeBlockForm(); });
 
-/* 歌詞1行分のDOMを組み立てる（編集画面・演奏画面共通）。文字ごとに「コード表示スロット＋文字」を
-   1つのinline-flexユニットにまとめる方式で、行が画面幅で折り返されてもコードが文字と一緒に
-   折り返し先へ移動する。ci は 0〜文字数(＝最後の文字の"後ろ"も含む)まで回すことで、空行(間奏)・
-   行末へのコード配置にも対応する。songTagsは対象の曲のtags配列（呼び出し側から渡す）。 */
-function spBuildLineEl(lineText, li, tappable, songTags){
-  const lineEl = document.createElement('div');
-  lineEl.className = 'sp-line';
-  const lineTags = (songTags||[]).filter(t=>t.line===li);
-  const chars = spLineChars(lineText);
-  for(let ci=0; ci<=chars.length; ci++){
-    const unit = document.createElement('span');
-    unit.className = 'sp-ch-unit';
-    const tagSlot = document.createElement('span');
-    tagSlot.className = 'sp-tag-slot';
-    const t = lineTags.find(x=>x.ch===ci);
-    if(t){
-      tagSlot.classList.add('filled');
-      if(t.strum && t.strum.length) tagSlot.classList.add('has-strum');
-      tagSlot.textContent = t.chord;
-      if(tappable){
-        tagSlot.classList.add('editable');
-        if(spSelectedTag===t) tagSlot.classList.add('selected');
-        tagSlot.onclick = ()=> spSelectTag(t);
-      }
-    }
-    unit.appendChild(tagSlot);
-    const chEl = document.createElement('span');
-    const isEnd = ci===chars.length;
-    chEl.className = 'sp-ch' + (isEnd?' end-marker':'') + (tappable?' tappable':'');
-    chEl.textContent = isEnd ? '·' : chars[ci];
-    if(tappable){
-      if(spSelected && spSelected.line===li && spSelected.ch===ci) chEl.classList.add('selected');
-      chEl.onclick = ()=>{
-        spSelected = {line:li, ch:ci};
-        spSelectedTag = null;
-        spRenderEditor();
-      };
-    }
-    unit.appendChild(chEl);
-    lineEl.appendChild(unit);
-  }
-  return lineEl;
+function blockFormAddStroke(sym){
+  blockFormStrum.push(sym);
+  updateBlockFormStrumDisplay();
 }
-
-function spRenderEditor(){
-  if(!editingSong) return;
-  const wrap = document.getElementById('sp-lyric-preview');
-  wrap.innerHTML = '';
-  (editingSong.lyrics||[]).forEach((lineText, li)=>{
-    wrap.appendChild(spBuildLineEl(lineText, li, true, editingSong.tags||[]));
-  });
-  spUpdateDock();
-  spRenderProgressionPreview();
-}
-function spRenderProgressionPreview(){
-  const el = document.getElementById('sp-progression-preview');
-  const sorted = [...(editingSong.tags||[])].sort((a,b)=> a.line-b.line || a.ch-b.ch);
-  if(sorted.length===0){ el.textContent = 'まだコードが配置されていません'; return; }
-  el.innerHTML = '<b>自動導出されたコード進行:</b><br>' + sorted.map(t=>escapeHtml(t.chord)).join(' → ');
-}
-/* サビ前などコードが変わる瞬間にストロークも変えたい、という要望に対応するため、配置済みの
-   コードタグ自体に個別のストロークパターン(tag.strum)を持たせられるようにしてある。
-   「この位置で今実際に鳴らすべきパターン」は、そのタグ自身か、それより手前で最後に
-   strumが設定されたタグの値を継承する。どのタグにも設定が無ければ曲全体の初期パターン
-   (song.strumPattern)にフォールバックする。sortedTagsは呼び出し側で行/文字順にソート済みのもの。 */
-function spResolveStrumAt(song, sortedTags, index){
-  for(let i=index; i>=0; i--){
-    if(sortedTags[i].strum && sortedTags[i].strum.length) return sortedTags[i].strum;
-  }
-  return song.strumPattern || [];
-}
-function spUpdateTagStrumDisplay(){
-  if(!editingSong || !spSelectedTag) return;
-  const sorted = [...(editingSong.tags||[])].sort((a,b)=> a.line-b.line || a.ch-b.ch);
-  const idx = sorted.indexOf(spSelectedTag);
-  const active = idx>=0 ? spResolveStrumAt(editingSong, sorted, idx) : (spSelectedTag.strum||[]);
-  const el = document.getElementById('sp-tag-strum-current');
-  el.textContent = active.length ? active.join(' ') : '（未設定）';
-  document.getElementById('sp-tag-strum-reset').disabled = !(spSelectedTag.strum && spSelectedTag.strum.length);
-}
-function spUpdateDock(){
-  const statusEl = document.getElementById('sp-status');
-  const editEl = document.getElementById('sp-edit-controls');
-  const paletteEl = document.getElementById('sp-palette');
-  const strumCtrlEl = document.getElementById('sp-tag-strum-controls');
-  const lines = editingSong.lyrics || [];
-  if(spSelectedTag){
-    paletteEl.style.display = 'none';
-    editEl.style.display = 'flex';
-    strumCtrlEl.style.display = 'block';
-    spUpdateTagStrumDisplay();
-    const ch = lines[spSelectedTag.line]===undefined ? '(行末)' : spLineCharAt(lines[spSelectedTag.line], spSelectedTag.ch);
-    statusEl.textContent = `編集中: 「${spSelectedTag.chord}」（「${ch}」の位置）`;
-    statusEl.classList.add('active');
-  } else {
-    strumCtrlEl.style.display = 'none';
-    paletteEl.style.display = 'flex';
-    editEl.style.display = 'none';
-    paletteEl.querySelectorAll('button').forEach(b=> b.disabled = !spSelected);
-    if(spSelected){
-      const ch = lines[spSelected.line]===undefined ? '(行末)' : spLineCharAt(lines[spSelected.line], spSelected.ch);
-      statusEl.textContent = `選択中: 「${ch}」の位置 → コードをタップ`;
-      statusEl.classList.add('active');
-    } else {
-      statusEl.textContent = '歌詞の文字をタップしてください';
-      statusEl.classList.remove('active');
-    }
-  }
-}
-document.getElementById('sp-move-left').onclick = ()=>{
-  if(!spSelectedTag) return;
-  const newCh = Math.max(0, spSelectedTag.ch-1);
-  editingSong.tags = editingSong.tags.filter(t=> t===spSelectedTag || !(t.line===spSelectedTag.line && t.ch===newCh));
-  spSelectedTag.ch = newCh;
-  editingSong.progression = deriveProgression(editingSong.tags);
-  saveUserSongs();
-  spRenderEditor();
+document.getElementById('block-form-strum-down').onclick = ()=> blockFormAddStroke('↓');
+document.getElementById('block-form-strum-up').onclick = ()=> blockFormAddStroke('↑');
+document.getElementById('block-form-strum-mute').onclick = ()=> blockFormAddStroke('✕');
+document.getElementById('block-form-strum-wave').onclick = ()=> blockFormAddStroke('〜');
+document.getElementById('block-form-strum-undo').onclick = ()=>{
+  blockFormStrum = blockFormStrum.slice(0,-1);
+  updateBlockFormStrumDisplay();
 };
-document.getElementById('sp-move-right').onclick = ()=>{
-  if(!spSelectedTag) return;
-  const lineLen = editingSong.lyrics[spSelectedTag.line]===undefined ? 0 : spLineChars(editingSong.lyrics[spSelectedTag.line]).length;
-  const newCh = Math.min(lineLen, spSelectedTag.ch+1);
-  editingSong.tags = editingSong.tags.filter(t=> t===spSelectedTag || !(t.line===spSelectedTag.line && t.ch===newCh));
-  spSelectedTag.ch = newCh;
-  editingSong.progression = deriveProgression(editingSong.tags);
-  saveUserSongs();
-  spRenderEditor();
+document.getElementById('block-form-strum-clear').onclick = ()=>{
+  blockFormStrum = [];
+  updateBlockFormStrumDisplay();
 };
-document.getElementById('sp-tag-delete').onclick = ()=>{
-  if(!spSelectedTag) return;
-  editingSong.tags = editingSong.tags.filter(t=>t!==spSelectedTag);
-  editingSong.progression = deriveProgression(editingSong.tags);
-  spSelectedTag = null;
+document.getElementById('block-form-confirm-btn').onclick = ()=>{
+  if(!blockFormChord){ alert('コードを選択してください'); return; }
+  const block = {
+    chord: blockFormChord,
+    strum: [...blockFormStrum],
+    lyric: document.getElementById('block-form-lyric').value,
+    lineBreakBefore: document.getElementById('block-form-linebreak').checked
+  };
+  if(!editingSong.blocks) editingSong.blocks = [];
+  if(blockFormEditIndex!==null) editingSong.blocks[blockFormEditIndex] = block;
+  else editingSong.blocks.push(block);
+  editingSong.progression = deriveProgressionFromBlocks(editingSong.blocks);
   saveUserSongs();
-  spRenderEditor();
+  closeBlockForm();
+  spRenderBlockList();
 };
-document.getElementById('sp-tag-deselect').onclick = ()=>{
-  spSelectedTag = null;
-  spRenderEditor();
-};
-
-/* このコード(タグ)専用のストローク上書き。押した瞬間にtag.strumが無ければ空配列で作ってから
-   追記する（＝このタグを「ここからストロークが変わる地点」にする）。 */
-function spAddTagStroke(sym){
-  if(!spSelectedTag) return;
-  if(!spSelectedTag.strum) spSelectedTag.strum = [];
-  spSelectedTag.strum.push(sym);
+document.getElementById('block-form-delete-btn').onclick = ()=>{
+  if(blockFormEditIndex===null) return;
+  if(!confirm('このブロックを削除しますか？')) return;
+  editingSong.blocks.splice(blockFormEditIndex,1);
+  editingSong.progression = deriveProgressionFromBlocks(editingSong.blocks);
   saveUserSongs();
-  spRenderEditor();
-}
-document.getElementById('sp-tag-strum-down').onclick = ()=> spAddTagStroke('↓');
-document.getElementById('sp-tag-strum-up').onclick = ()=> spAddTagStroke('↑');
-document.getElementById('sp-tag-strum-mute').onclick = ()=> spAddTagStroke('✕');
-document.getElementById('sp-tag-strum-wave').onclick = ()=> spAddTagStroke('〜');
-document.getElementById('sp-tag-strum-undo').onclick = ()=>{
-  if(!spSelectedTag || !spSelectedTag.strum) return;
-  spSelectedTag.strum = spSelectedTag.strum.slice(0,-1);
-  if(spSelectedTag.strum.length===0) delete spSelectedTag.strum;
-  saveUserSongs();
-  spRenderEditor();
-};
-document.getElementById('sp-tag-strum-reset').onclick = ()=>{
-  if(!spSelectedTag) return;
-  delete spSelectedTag.strum;
-  saveUserSongs();
-  spRenderEditor();
+  closeBlockForm();
+  spRenderBlockList();
 };
 
 /* ── 演奏画面: 曲全体ぶんのコードカードが折り返しながら並ぶ表示 ──
@@ -2781,29 +2635,14 @@ let spSecPerBlock = 2.0;
 let spBeatsPerBlock = 2;
 let spPlaying = false;
 let spPlayTimer = null;
-let spSongQueueTags = [];
+let spSongQueueBlocks = [];
 let spSongQueueIndex = 0;
 
-function spBuildQueueForSong(song){
-  return [...(song.tags||[])].sort((a,b)=> a.line-b.line || a.ch-b.ch);
-}
-// タグの位置から、次のタグ(または行末)までの歌詞の断片を取り出す。行をまたぐ場合は
-// そのタグの行の残り部分だけを表示する(次の行の頭は次のタグ自身のカードで見えるため)。
-function spCurrentBlockLyric(song, sortedTags, index){
-  const tag = sortedTags[index];
-  if(!tag) return '';
-  const lines = song.lyrics || [];
-  const lineText = lines[tag.line] || '';
-  const chars = spLineChars(lineText);
-  const next = sortedTags[index+1];
-  const end = (next && next.line===tag.line) ? next.ch : chars.length;
-  return chars.slice(tag.ch, end).join('');
-}
 function openSongPlayer(song){
   if(!song) return;
   playingSong = song;
   document.getElementById('sp-play-title').textContent = song.title + (song.artist ? '　'+song.artist : '');
-  spSongQueueTags = spBuildQueueForSong(song);
+  spSongQueueBlocks = song.blocks || [];
   spSongQueueIndex = 0;
   spRenderPlayGrid();
   document.getElementById('sp-play-overlay').classList.add('open');
@@ -2817,44 +2656,76 @@ function closeSongPlayer(){
   document.getElementById('sp-play-overlay').classList.remove('open');
   playingSong = null;
 }
+/* ストロークと歌詞の文字数がぴったり同じ長さなら「1文字ずつ個別のストローク」として真上に
+   1:1で並べ、そうでなければ「コード全体で1パターン」としてそのまま流して表示する。
+   歌詞が空(前奏など)の場合はストローク段だけを表示する。 */
+function spBuildStrumLyricRows(block){
+  const strumRow = document.createElement('div');
+  strumRow.className = 'sp-block-strum-row';
+  const lyricRow = document.createElement('div');
+  lyricRow.className = 'sp-block-lyric-row';
+  const chars = [...(block.lyric||'')];
+  const strum = block.strum || [];
+  const perChar = chars.length>0 && strum.length===chars.length;
+  if(perChar){
+    strumRow.classList.add('sp-multichar'); lyricRow.classList.add('sp-multichar');
+    chars.forEach((ch,i)=>{
+      const s = document.createElement('span'); s.className='sp-char-cell'; s.textContent = strum[i];
+      strumRow.appendChild(s);
+      const l = document.createElement('span'); l.className='sp-char-cell'; l.textContent = ch;
+      lyricRow.appendChild(l);
+    });
+  } else {
+    strumRow.textContent = strum.join(' ');
+    lyricRow.textContent = chars.length ? block.lyric : ' ';
+  }
+  return [strumRow, lyricRow];
+}
+// このカードは常に横向き(drawFretH)固定で描く。既存のコード/流れるタブが使う縦横切替設定
+// (fretIsHoriz)には影響されない、この演奏画面専用の見た目にするため。
+function spBuildPlayCard(block, idx){
+  const card = document.createElement('div');
+  card.className = 'sp-play-card';
+  const chordEl = document.createElement('div');
+  chordEl.className = 'sp-card-chord-name';
+  chordEl.textContent = block.chord;
+  const fretEl = document.createElementNS('http://www.w3.org/2000/svg','svg');
+  fretEl.setAttribute('viewBox','0 0 150 76');
+  fretEl.setAttribute('class','sp-card-fret');
+  const chordObj = ALL_CHORDS.find(c=>c.name===block.chord);
+  if(chordObj) drawFretH(chordObj, fretEl);
+  card.appendChild(chordEl);
+  card.appendChild(fretEl);
+  spBuildStrumLyricRows(block).forEach(el=> card.appendChild(el));
+  card.onclick = ()=>{ spSongQueueIndex = idx; spUpdatePlayHighlight(); };
+  return card;
+}
 // 曲全体ぶんのカードを1回だけ組み立てる(進めるたびに作り直す必要はない、ハイライトの
-// 付け替えとスクロール追従だけで済む)。カード自体をタップしてもその位置へ直接ジャンプできる。
+// 付け替えとスクロール追従だけで済む)。lineBreakBeforeのブロックの手前で改行用の空要素を挟む。
 function spRenderPlayGrid(){
   const grid = document.getElementById('sp-play-grid');
   if(!grid || !playingSong) return;
   grid.innerHTML = '';
-  if(spSongQueueTags.length===0){
-    grid.innerHTML = '<div class="sp-hint" style="padding:16px;">まだコードが配置されていません</div>';
+  if(spSongQueueBlocks.length===0){
+    grid.innerHTML = '<div class="sp-hint" style="padding:16px;">まだブロックが組み立てられていません</div>';
     return;
   }
-  spSongQueueTags.forEach((tag, idx)=>{
-    const card = document.createElement('div');
-    card.className = 'sp-play-card';
-    const strumEl = document.createElement('div');
-    strumEl.className = 'sp-tile-strum';
-    strumEl.textContent = spResolveStrumAt(playingSong, spSongQueueTags, idx).join(' ');
-    const nameEl = document.createElement('div');
-    nameEl.className = 'sp-tile-name';
-    nameEl.textContent = tag.chord;
-    const fretEl = document.createElementNS('http://www.w3.org/2000/svg','svg');
-    fretEl.setAttribute('viewBox','0 0 140 200');
-    fretEl.setAttribute('class','sp-tile-fret');
-    const chordObj = ALL_CHORDS.find(c=>c.name===tag.chord);
-    if(chordObj) drawFret(chordObj, fretEl);
-    const lyricEl = document.createElement('div');
-    lyricEl.className = 'sp-tile-lyric';
-    lyricEl.textContent = spCurrentBlockLyric(playingSong, spSongQueueTags, idx);
-    card.appendChild(strumEl); card.appendChild(nameEl); card.appendChild(fretEl); card.appendChild(lyricEl);
-    card.onclick = ()=>{ spSongQueueIndex = idx; spUpdatePlayHighlight(); };
-    grid.appendChild(card);
+  spSongQueueBlocks.forEach((block, idx)=>{
+    if(idx>0 && block.lineBreakBefore){
+      const br = document.createElement('div');
+      br.style.cssText = 'flex-basis:100%; height:0;';
+      grid.appendChild(br);
+    }
+    grid.appendChild(spBuildPlayCard(block, idx));
   });
   spUpdatePlayHighlight();
 }
 function spUpdatePlayHighlight(){
   const grid = document.getElementById('sp-play-grid');
   if(!grid) return;
-  [...grid.children].forEach(el=> el.classList.remove('current'));
-  const cur = grid.children[spSongQueueIndex];
+  const cards = grid.querySelectorAll('.sp-play-card');
+  cards.forEach(el=> el.classList.remove('current'));
+  const cur = cards[spSongQueueIndex];
   if(cur){
     cur.classList.add('current');
     cur.scrollIntoView({behavior:'smooth', block:'nearest', inline:'nearest'});
@@ -2862,7 +2733,7 @@ function spUpdatePlayHighlight(){
 }
 function spAdvanceBlock(delta){
   if(!playingSong) return;
-  spSongQueueIndex = Math.max(0, Math.min(spSongQueueTags.length, spSongQueueIndex+delta));
+  spSongQueueIndex = Math.max(0, Math.min(spSongQueueBlocks.length, spSongQueueIndex+delta));
   spUpdatePlayHighlight();
 }
 document.getElementById('sp-block-prev').onclick = ()=> spAdvanceBlock(-1);
@@ -2877,7 +2748,7 @@ function spBlockIntervalMs(){
 function spStartAutoAdvance(){
   spStopAutoAdvance();
   spPlayTimer = setInterval(()=>{
-    if(spSongQueueIndex >= spSongQueueTags.length){
+    if(spSongQueueIndex >= spSongQueueBlocks.length){
       // 曲の最後まで来たら自動的に止める(手動送りでいつでも見返せるようにspPlaying自体は解除する)
       spPlaying = false;
       spStopAutoAdvance();
