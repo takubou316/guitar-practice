@@ -383,6 +383,12 @@ footer.controls-bar { height: var(--ftr); flex-shrink: 0; display: flex; align-i
 .sp-block-row-mid { flex: 1; min-width: 0; }
 .sp-block-row-strum { display: flex; gap: 1px; font-size: 11px; color: var(--accent); overflow: hidden; white-space: nowrap; }
 .sp-block-row-lyric { font-size: 13px; color: var(--text2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* lyricStartのズレを演奏画面と同じ1文字ずつのセル(sp-char-cell)で表す場合、一覧行は
+   幅が限られるため横スクロールで全体を確認できるようにする(はみ出た分は隠さない)。
+   セル幅も一覧では詰めてコンパクトにする。 */
+.sp-block-row-strum.sp-multichar, .sp-block-row-lyric.sp-multichar { overflow-x: auto; overflow-y: hidden; }
+.sp-block-row-lyric.sp-multichar { display: flex; gap: 1px; text-overflow: clip; }
+.sp-block-row-mid .sp-char-cell { width: 15px; }
 .sp-block-row-edit { color: var(--text3); flex-shrink: 0; }
 .sp-block-linebreak-marker { font-size: 11px; color: var(--text3); text-align: center; margin: 8px 0; }
 .sp-strum-preset-list { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -2540,13 +2546,16 @@ function spRenderBlockList(){
     chordEl.textContent = b.chord;
     const midEl = document.createElement('div');
     midEl.className = 'sp-block-row-mid';
-    const strumEl = document.createElement('div');
-    strumEl.className = 'sp-block-row-strum';
-    if(b.strum && b.strum.length) spRenderStrumSpans(strumEl, b.strum);
-    else strumEl.textContent = '（ストロークなし）';
-    const lyricEl = document.createElement('div');
-    lyricEl.className = 'sp-block-row-lyric';
-    lyricEl.textContent = b.lyric ? b.lyric : '（歌詞なし）';
+    // 演奏画面(spBuildStrumLyricRows)と同じロジックで組み立てることで、lyricStartによる
+    // ズレ(歌詞が途中から乗る/途中で終わる)を一覧画面でも正確に反映する。以前は
+    // ストローク欄・歌詞欄をそれぞれ別々にそのまま表示するだけで、この対応関係を
+    // 保っていなかった。
+    const [strumEl, lyricEl] = spBuildStrumLyricRows(b, {
+      strumClass: 'sp-block-row-strum',
+      lyricClass: 'sp-block-row-lyric',
+      emptyStrumText: '（ストロークなし）',
+      emptyLyricText: '（歌詞なし）'
+    });
     midEl.appendChild(strumEl); midEl.appendChild(lyricEl);
     const editEl = document.createElement('div');
     editEl.className = 'sp-block-row-edit';
@@ -2773,11 +2782,12 @@ function closeSongPlayer(){
 /* ストロークと歌詞の文字数がぴったり同じ長さなら「1文字ずつ個別のストローク」として真上に
    1:1で並べ、そうでなければ「コード全体で1パターン」としてそのまま流して表示する。
    歌詞が空(前奏など)の場合はストローク段だけを表示する。 */
-function spBuildStrumLyricRows(block){
+function spBuildStrumLyricRows(block, opts){
+  opts = opts || {};
   const strumRow = document.createElement('div');
-  strumRow.className = 'sp-block-strum-row';
+  strumRow.className = opts.strumClass || 'sp-block-strum-row';
   const lyricRow = document.createElement('div');
-  lyricRow.className = 'sp-block-lyric-row';
+  lyricRow.className = opts.lyricClass || 'sp-block-lyric-row';
   const chars = [...(block.lyric||'')];
   const strum = block.strum || [];
   const lyricStart = Math.min(Math.max(0, block.lyricStart||0), strum.length);
@@ -2799,8 +2809,9 @@ function spBuildStrumLyricRows(block){
       lyricRow.appendChild(l);
     });
   } else {
-    spRenderStrumSpans(strumRow, strum);
-    lyricRow.textContent = chars.length ? block.lyric : ' ';
+    if(strum.length) spRenderStrumSpans(strumRow, strum);
+    else if(opts.emptyStrumText) strumRow.textContent = opts.emptyStrumText;
+    lyricRow.textContent = chars.length ? block.lyric : (opts.emptyLyricText || ' ');
   }
   return [strumRow, lyricRow];
 }
