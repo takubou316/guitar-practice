@@ -361,10 +361,20 @@ footer.controls-bar { height: var(--ftr); flex-shrink: 0; display: flex; align-i
 .sp-play-card.current { background: var(--surface2); border: 2px solid var(--accent); opacity: 1; }
 .sp-card-chord-name { font-size: 14px; font-weight: 700; color: var(--text); }
 .sp-card-fret { width: 80px; height: auto; margin-bottom: 4px; }
+/* フレット図(一番上)の下は「コード名(ストローク行の左端)＋ストローク／歌詞の2行」を横並びにする。
+   コード名はストローク・歌詞どちらの1文字ぶんのセルにも属さない独立した列なので、歌詞側の
+   対応がズレないよう列の外に置く(歌詞row内の1文字目としては数えない)。 */
+.sp-card-body { display: flex; align-items: flex-start; gap: 5px; }
+.sp-card-chord-inline { font-size: 13px; font-weight: 700; color: var(--text); line-height: 1; padding-top: 1px; }
+.sp-card-sl-col { display: flex; flex-direction: column; gap: 2px; }
 .sp-block-strum-row { display: flex; gap: 1px; font-size: 12px; color: var(--accent); font-weight: 700; }
 .sp-block-lyric-row { display: flex; gap: 1px; font-size: 14px; }
 .sp-block-strum-row:not(.sp-multichar), .sp-block-lyric-row:not(.sp-multichar) { letter-spacing: 1px; }
 .sp-char-cell { width: 18px; text-align: center; flex-shrink: 0; }
+/* ストローク記号のうち↓↑(実際にかき鳴らす向き)は大きく、～(ブラッシング等の弱い記号)は
+   小さく表示し、パッと見て強弱・リズムの区切りが分かりやすくする(演奏画面カードのみ)。 */
+.sp-strum-arrow { font-size: 1.35em; }
+.sp-strum-small { font-size: 0.65em; opacity: 0.8; }
 /* 配置済みタグに独自のストローク変更があることを示す印（外枠を目立たせるだけのシンプルな方式） */
 #sp-tag-strum-controls { display: none; margin-top: 8px; padding-top: 8px; border-top: 0.5px solid var(--border); }
 #sp-tag-strum-controls .sp-row { margin-top: 6px; }
@@ -2682,6 +2692,9 @@ document.getElementById('block-form-modal').addEventListener('click', e=>{ if(e.
    記号ではなく表示上の間隔だけを表す。プレーンな文字として.join(' ')すると読みにくいので、
    表示箇所(spRenderStrumSpans)ではこの印だけ余白を広げたspanに差し替えて描く。 */
 const STRUM_GAP = ' gap';
+// 演奏画面カードでは↓↑(実際にかき鳴らす向き)を大きく、それ以外(～のブラッシング等)を
+// 小さく表示する(options.emphasizeArrowが立っている時だけ、他の画面の見た目は変えない)。
+const STRUM_ARROW_SYMS = ['↓','↑'];
 // options.editable=trueの時、記号(区切りを除く)をタップ可能にし、options.lyricStartと同じ
 // 添字の記号に「歌詞はここから」の印を付ける。タップするとoptions.onSymbolClick(index)を呼ぶ。
 function spRenderStrumSpans(container, strum, options){
@@ -2693,6 +2706,7 @@ function spRenderStrumSpans(container, strum, options){
       el.style.cssText = 'display:inline-block; width:14px;';
     } else {
       el.textContent = sym;
+      if(options.emphasizeArrow) el.classList.add(STRUM_ARROW_SYMS.includes(sym) ? 'sp-strum-arrow' : 'sp-strum-small');
       if(options.editable){
         el.classList.add('sp-strum-symbol-editable');
         if(i===options.lyricStart) el.classList.add('sp-lyric-start-marker');
@@ -2803,13 +2817,14 @@ function spBuildStrumLyricRows(block, opts){
     strumRow.classList.add('sp-multichar'); lyricRow.classList.add('sp-multichar');
     strum.forEach((sym,i)=>{
       const s = document.createElement('span'); s.className='sp-char-cell'; s.textContent = sym;
+      if(opts.emphasizeArrow) s.classList.add(STRUM_ARROW_SYMS.includes(sym) ? 'sp-strum-arrow' : 'sp-strum-small');
       strumRow.appendChild(s);
       const l = document.createElement('span'); l.className='sp-char-cell';
       if(i>=lyricStart && i<lyricEnd) l.textContent = chars[i-lyricStart];
       lyricRow.appendChild(l);
     });
   } else {
-    if(strum.length) spRenderStrumSpans(strumRow, strum);
+    if(strum.length) spRenderStrumSpans(strumRow, strum, {emphasizeArrow: opts.emphasizeArrow});
     else if(opts.emptyStrumText) strumRow.textContent = opts.emptyStrumText;
     lyricRow.textContent = chars.length ? block.lyric : (opts.emptyLyricText || ' ');
   }
@@ -2851,16 +2866,24 @@ function drawFretPlayCard(c, svg){
 function spBuildPlayCard(block, idx){
   const card = document.createElement('div');
   card.className = 'sp-play-card';
-  const chordEl = document.createElement('div');
-  chordEl.className = 'sp-card-chord-name';
-  chordEl.textContent = block.chord;
   const fretEl = document.createElementNS('http://www.w3.org/2000/svg','svg');
   fretEl.setAttribute('class','sp-card-fret');
   const chordObj = ALL_CHORDS.find(c=>c.name===block.chord);
   if(chordObj) drawFretPlayCard(chordObj, fretEl);
-  card.appendChild(chordEl);
   card.appendChild(fretEl);
-  spBuildStrumLyricRows(block).forEach(el=> card.appendChild(el));
+  // フレット図の下は「コード名(ストローク行の左端、歌詞の1文字目とはズレない独立した列)」＋
+  // 「ストローク行／歌詞行」を横並びにする。
+  const body = document.createElement('div');
+  body.className = 'sp-card-body';
+  const chordEl = document.createElement('div');
+  chordEl.className = 'sp-card-chord-inline';
+  chordEl.textContent = block.chord;
+  const slCol = document.createElement('div');
+  slCol.className = 'sp-card-sl-col';
+  spBuildStrumLyricRows(block, {emphasizeArrow:true}).forEach(el=> slCol.appendChild(el));
+  body.appendChild(chordEl);
+  body.appendChild(slCol);
+  card.appendChild(body);
   card.onclick = ()=>{ spSongQueueIndex = idx; spUpdatePlayHighlight(); };
   return card;
 }
