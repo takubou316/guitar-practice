@@ -367,7 +367,9 @@ footer.controls-bar { height: var(--ftr); flex-shrink: 0; display: flex; align-i
 .sp-card-body { display: flex; align-items: flex-start; gap: 5px; }
 .sp-card-chord-inline { font-size: 13px; font-weight: 700; color: var(--text); line-height: 1; padding-top: 1px; }
 .sp-card-sl-col { display: flex; flex-direction: column; gap: 2px; }
-.sp-block-strum-row { display: flex; gap: 1px; font-size: 12px; color: var(--accent); font-weight: 700; }
+/* ↓↑/～でフォントサイズが違うため、align-items指定が無いとベースライン基準で
+   小さい文字(～)が上寄りに見えてしまう。矢印の縦中心に高さを揃える。 */
+.sp-block-strum-row { display: flex; align-items: center; gap: 1px; font-size: 12px; color: var(--accent); font-weight: 700; }
 .sp-block-lyric-row { display: flex; gap: 1px; font-size: 14px; }
 .sp-block-strum-row:not(.sp-multichar), .sp-block-lyric-row:not(.sp-multichar) { letter-spacing: 1px; }
 .sp-char-cell { width: 18px; text-align: center; flex-shrink: 0; }
