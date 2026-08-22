@@ -360,7 +360,7 @@ footer.controls-bar { height: var(--ftr); flex-shrink: 0; display: flex; align-i
 .sp-play-card { flex-shrink: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 8px 10px; border-radius: 10px; opacity: 0.5; cursor: pointer; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
 .sp-play-card.current { background: var(--surface2); border: 2px solid var(--accent); opacity: 1; }
 .sp-card-chord-name { font-size: 14px; font-weight: 700; color: var(--text); }
-.sp-card-fret { width: 100px; height: auto; margin-bottom: 4px; }
+.sp-card-fret { width: 80px; height: auto; margin-bottom: 4px; }
 .sp-block-strum-row { display: flex; gap: 1px; font-size: 12px; color: var(--accent); font-weight: 700; }
 .sp-block-lyric-row { display: flex; gap: 1px; font-size: 14px; }
 .sp-block-strum-row:not(.sp-multichar), .sp-block-lyric-row:not(.sp-multichar) { letter-spacing: 1px; }
@@ -2815,8 +2815,39 @@ function spBuildStrumLyricRows(block, opts){
   }
   return [strumRow, lyricRow];
 }
-// このカードは常に横向き(drawFretH)固定で描く。既存のコード/流れるタブが使う縦横切替設定
-// (fretIsHoriz)には影響されない、この演奏画面専用の見た目にするため。
+// 演奏画面のカード専用のフレット図。drawFretH(コード/流れるタブ共有)はフレット間隔:弦間隔が
+// 約3:1の不揃いな長方形マスになっており、演奏画面ではカードを沢山並べるぶん見た目の破綻が
+// 目立ったため、マス目を正方形(CELL四方)にした専用の描画関数として分離した。drawFretHや
+// fretIsHoriz(コード/流れるタブの縦横切替設定)には一切影響しない。
+function drawFretPlayCard(c, svg){
+  const CELL=15, SW=6, FT=4, sf=c.startFret||0;
+  const L=24, T=9, R=L+CELL*FT, B=T+CELL*(SW-1);
+  svg.setAttribute('viewBox', `0 0 ${R+6} ${B+7}`);
+  let h='';
+  if(sf===0) h+=`<rect x="${L-4}" y="${T-1}" width="4" height="${B-T+2}" rx="1.5" fill="#e0e0e0"/>`;
+  else h+=`<text x="${L+2}" y="${T-2}" font-size="8" fill="#666" font-family="sans-serif">${sf}fr</text>`;
+  for(let f=0;f<=FT;f++){ const x=L+f*CELL; h+=`<line x1="${x}" y1="${T}" x2="${x}" y2="${B}" stroke="#444" stroke-width="${f===0&&sf>0?1.5:0.7}"/>`; }
+  const sLabels=['e','B','G','D','A','E'];
+  for(let s=1;s<=SW;s++){
+    const y=T+(s-1)*CELL;
+    h+=`<line x1="${L}" y1="${y}" x2="${R}" y2="${y}" stroke="#444" stroke-width="0.7"/>`;
+    h+=`<text x="${L-7}" y="${y+3}" text-anchor="end" font-size="8" fill="#666" font-family="sans-serif">${sLabels[s-1]}</text>`;
+    if(c.muted&&c.muted.includes(s)) h+=`<text x="${L-16}" y="${y+4}" text-anchor="middle" font-size="9" fill="#666" font-family="sans-serif">×</text>`;
+    else if(c.open&&c.open.includes(s)) h+=`<circle cx="${L-16}" cy="${y}" r="3.4" fill="none" stroke="#888" stroke-width="1.1"/>`;
+  }
+  if(c.barre){
+    const fx=L+(c.barre.fret-sf-0.5)*CELL, by1=T+(Math.min(c.barre.from,c.barre.to)-1)*CELL, by2=T+(Math.max(c.barre.from,c.barre.to)-1)*CELL;
+    h+=`<rect x="${fx-6}" y="${by1-5}" width="12" height="${by2-by1+10}" rx="6" fill="${FC['B']}"/>`;
+    h+=`<text x="${fx}" y="${(by1+by2)/2+3}" text-anchor="middle" font-size="8" font-weight="bold" fill="#fff" font-family="sans-serif">B</text>`;
+  }
+  c.fingers.forEach(fi=>{
+    if(fi.f==='B')return;
+    const x=L+(fi.fr-sf-0.5)*CELL, y=T+(fi.s-1)*CELL;
+    h+=`<circle cx="${x}" cy="${y}" r="6" fill="${FC[fi.f]||'#666'}"/>`;
+    h+=`<text x="${x}" y="${y+3}" text-anchor="middle" font-size="8" font-weight="bold" fill="#fff" font-family="sans-serif">${FN[fi.f]}</text>`;
+  });
+  svg.innerHTML=h;
+}
 function spBuildPlayCard(block, idx){
   const card = document.createElement('div');
   card.className = 'sp-play-card';
@@ -2824,10 +2855,9 @@ function spBuildPlayCard(block, idx){
   chordEl.className = 'sp-card-chord-name';
   chordEl.textContent = block.chord;
   const fretEl = document.createElementNS('http://www.w3.org/2000/svg','svg');
-  fretEl.setAttribute('viewBox','0 0 150 76');
   fretEl.setAttribute('class','sp-card-fret');
   const chordObj = ALL_CHORDS.find(c=>c.name===block.chord);
-  if(chordObj) drawFretH(chordObj, fretEl);
+  if(chordObj) drawFretPlayCard(chordObj, fretEl);
   card.appendChild(chordEl);
   card.appendChild(fretEl);
   spBuildStrumLyricRows(block).forEach(el=> card.appendChild(el));
