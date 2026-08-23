@@ -367,16 +367,16 @@ footer.controls-bar { height: var(--ftr); flex-shrink: 0; display: flex; align-i
 .sp-card-body { display: flex; align-items: flex-start; gap: 5px; }
 .sp-card-chord-inline { font-size: 13px; font-weight: 700; color: var(--text); line-height: 1; padding-top: 1px; }
 .sp-card-sl-col { display: flex; flex-direction: column; gap: 2px; }
-/* ↓↑/～でフォントサイズが違うため、align-items指定が無いとベースライン基準で
-   小さい文字(～)が上寄りに見えてしまう。矢印の縦中心に高さを揃える。 */
+/* SVGアイコン(sp-strum-icon)は高さがテキストと違うため、align-items指定が無いと
+   ベースライン基準で他の記号と縦位置がズレる。中心を揃える。 */
 .sp-block-strum-row { display: flex; align-items: center; gap: 1px; font-size: 12px; color: var(--accent); font-weight: 700; }
 .sp-block-lyric-row { display: flex; gap: 1px; font-size: 14px; }
 .sp-block-strum-row:not(.sp-multichar), .sp-block-lyric-row:not(.sp-multichar) { letter-spacing: 1px; }
 .sp-char-cell { width: 18px; text-align: center; flex-shrink: 0; }
-/* ストローク記号のうち↓↑(実際にかき鳴らす向き)は大きく、～(ブラッシング等の弱い記号)は
-   小さく表示し、パッと見て強弱・リズムの区切りが分かりやすくする(演奏画面カードのみ)。 */
-.sp-strum-arrow { font-size: 1.35em; }
-.sp-strum-small { font-size: 0.65em; opacity: 0.8; }
+/* ストローク記号(↓↑～)を棒+矢じりのSVGで描く時のコンテナ。SVGはcurrentColorで
+   親のcolor(var(--accent))を継承し、インライン混在時の下寄りの隙間をvertical-alignで消す。 */
+.sp-strum-icon { display: inline-flex; align-items: center; justify-content: center; }
+.sp-strum-icon svg { display: block; vertical-align: middle; }
 /* 配置済みタグに独自のストローク変更があることを示す印（外枠を目立たせるだけのシンプルな方式） */
 #sp-tag-strum-controls { display: none; margin-top: 8px; padding-top: 8px; border-top: 0.5px solid var(--border); }
 #sp-tag-strum-controls .sp-row { margin-top: 6px; }
@@ -2694,9 +2694,16 @@ document.getElementById('block-form-modal').addEventListener('click', e=>{ if(e.
    記号ではなく表示上の間隔だけを表す。プレーンな文字として.join(' ')すると読みにくいので、
    表示箇所(spRenderStrumSpans)ではこの印だけ余白を広げたspanに差し替えて描く。 */
 const STRUM_GAP = ' gap';
-// 演奏画面カードでは↓↑(実際にかき鳴らす向き)を大きく、それ以外(～のブラッシング等)を
-// 小さく表示する(options.emphasizeArrowが立っている時だけ、他の画面の見た目は変えない)。
-const STRUM_ARROW_SYMS = ['↓','↑'];
+// 演奏画面カードでは↓↑～を、文字(Unicode記号)のフォントサイズ変更ではなく棒+矢じりの
+// SVGアイコンで描く(options.emphasizeArrowが立っている時だけ、他の画面はテキストのまま)。
+// 「フォントサイズを変えるだけだと線の太さ・長さの質感が出ない」との指摘を受けて、実際に
+// line+pathで描画する方式に変更した。viewBoxの縦中心(y=17)を軸にdown/up/波が揃うよう
+// 座標を設計してあるので、新しい記号を足す時もこの中心に合わせること。
+const STRUM_ICON_SVG = {
+  '↓': '<svg viewBox="0 0 20 34" width="16" height="30" aria-hidden="true"><line x1="10" y1="5" x2="10" y2="21" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><path d="M4 21 L10 29 L16 21" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  '↑': '<svg viewBox="0 0 20 34" width="16" height="30" aria-hidden="true"><line x1="10" y1="13" x2="10" y2="29" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><path d="M4 13 L10 5 L16 13" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  '～': '<svg viewBox="0 0 20 34" width="14" height="30" aria-hidden="true"><path d="M4 17 Q7 12 10 17 T16 17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity="0.75"/></svg>'
+};
 // options.editable=trueの時、記号(区切りを除く)をタップ可能にし、options.lyricStartと同じ
 // 添字の記号に「歌詞はここから」の印を付ける。タップするとoptions.onSymbolClick(index)を呼ぶ。
 function spRenderStrumSpans(container, strum, options){
@@ -2707,8 +2714,12 @@ function spRenderStrumSpans(container, strum, options){
     if(sym===STRUM_GAP){
       el.style.cssText = 'display:inline-block; width:14px;';
     } else {
-      el.textContent = sym;
-      if(options.emphasizeArrow) el.classList.add(STRUM_ARROW_SYMS.includes(sym) ? 'sp-strum-arrow' : 'sp-strum-small');
+      if(options.emphasizeArrow && STRUM_ICON_SVG[sym]){
+        el.innerHTML = STRUM_ICON_SVG[sym];
+        el.classList.add('sp-strum-icon');
+      } else {
+        el.textContent = sym;
+      }
       if(options.editable){
         el.classList.add('sp-strum-symbol-editable');
         if(i===options.lyricStart) el.classList.add('sp-lyric-start-marker');
@@ -2818,8 +2829,13 @@ function spBuildStrumLyricRows(block, opts){
   if(perChar){
     strumRow.classList.add('sp-multichar'); lyricRow.classList.add('sp-multichar');
     strum.forEach((sym,i)=>{
-      const s = document.createElement('span'); s.className='sp-char-cell'; s.textContent = sym;
-      if(opts.emphasizeArrow) s.classList.add(STRUM_ARROW_SYMS.includes(sym) ? 'sp-strum-arrow' : 'sp-strum-small');
+      const s = document.createElement('span'); s.className='sp-char-cell';
+      if(opts.emphasizeArrow && STRUM_ICON_SVG[sym]){
+        s.innerHTML = STRUM_ICON_SVG[sym];
+        s.classList.add('sp-strum-icon');
+      } else {
+        s.textContent = sym;
+      }
       strumRow.appendChild(s);
       const l = document.createElement('span'); l.className='sp-char-cell';
       if(i>=lyricStart && i<lyricEnd) l.textContent = chars[i-lyricStart];
